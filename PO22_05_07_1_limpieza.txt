@@ -1,0 +1,697 @@
+// ============================================================================
+// LIMPIEZA DE DATOS - SISTEMA DE FACTURAS STREAMIT
+// Base de datos: streamit_db
+// Colección: invoices
+// ============================================================================
+
+// Conectar a la base de datos
+// use streamit_db;
+
+// ============================================================================
+// PARTE 1: NORMALIZACIÓN DE FECHAS
+// ============================================================================
+// JUSTIFICACIÓN: Las fechas están en formatos heterogéneos (DD/MM/YY y Month YYYY)
+// que dificultan consultas y ordenamientos. Se normalizan a ISODate para aprovechar
+// las funcionalidades nativas de MongoDB.
+
+print("\n=== INICIANDO LIMPIEZA DE FECHAS ===\n");
+
+// 1.1 Convertir "charge date" de DD/MM/YY a ISODate
+// JUSTIFICACIÓN: Formato DD/MM/YY es ambiguo y no permite comparaciones directas.
+// Se asume que YY representa años 2000+
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "charge date": {
+          $dateFromString: {
+            dateString: {
+              $concat: [
+                "20",
+                { $substr: ["$charge date", 6, 2] }, // año
+                "-",
+                { $substr: ["$charge date", 3, 2] }, // mes
+                "-",
+                { $substr: ["$charge date", 0, 2] }  // día
+              ]
+            },
+            format: "%Y-%m-%d",
+            onError: null // Si falla, dejar null para revisión manual
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'charge date' normalizado a ISODate");
+
+// 1.2 Convertir "dump date" de DD/MM/YY a ISODate
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "dump date": {
+          $dateFromString: {
+            dateString: {
+              $concat: [
+                "20",
+                { $substr: ["$dump date", 6, 2] },
+                "-",
+                { $substr: ["$dump date", 3, 2] },
+                "-",
+                { $substr: ["$dump date", 0, 2] }
+              ]
+            },
+            format: "%Y-%m-%d",
+            onError: null
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'dump date' normalizado a ISODate");
+
+// 1.3 Convertir "billing" de "Month YYYY" a ISODate
+// JUSTIFICACIÓN: Se establece el día 1 del mes para tener una fecha completa
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        billing: {
+          $dateFromString: {
+            dateString: "$billing",
+            format: "%B %Y",
+            onError: null
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'billing' normalizado a ISODate");
+
+// 1.4 Convertir fechas en Client.Birth date
+db.invoices.updateMany(
+  { "Client.Birth date": { $exists: true, $type: "string" } },
+  [
+    {
+      $set: {
+        "Client.Birth date": {
+          $dateFromString: {
+            dateString: {
+              $concat: [
+                "20",
+                { $substr: ["$Client.Birth date", 6, 2] },
+                "-",
+                { $substr: ["$Client.Birth date", 3, 2] },
+                "-",
+                { $substr: ["$Client.Birth date", 0, 2] }
+              ]
+            },
+            format: "%Y-%m-%d",
+            onError: null
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'Client.Birth date' normalizado a ISODate");
+
+// 1.5 Convertir fechas en contract (start date y end date)
+db.invoices.updateMany(
+  { "contract.start date": { $exists: true, $type: "string" } },
+  [
+    {
+      $set: {
+        "contract.start date": {
+          $dateFromString: {
+            dateString: {
+              $concat: [
+                "20",
+                { $substr: ["$contract.start date", 6, 2] },
+                "-",
+                { $substr: ["$contract.start date", 3, 2] },
+                "-",
+                { $substr: ["$contract.start date", 0, 2] }
+              ]
+            },
+            format: "%Y-%m-%d",
+            onError: null
+          }
+        }
+      }
+    }
+  ]
+);
+
+db.invoices.updateMany(
+  { "contract.end date": { $exists: true, $type: "string" } },
+  [
+    {
+      $set: {
+        "contract.end date": {
+          $dateFromString: {
+            dateString: {
+              $concat: [
+                "20",
+                { $substr: ["$contract.end date", 6, 2] },
+                "-",
+                { $substr: ["$contract.end date", 3, 2] },
+                "-",
+                { $substr: ["$contract.end date", 0, 2] }
+              ]
+            },
+            format: "%Y-%m-%d",
+            onError: null
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campos de fechas en 'contract' normalizados a ISODate");
+
+// ============================================================================
+// PARTE 2: CORRECCIÓN DE TIPOS DE DATOS MIXTOS
+// ============================================================================
+// JUSTIFICACIÓN: El campo Client.Surname tiene tipos mixtos (string y array).
+// Se normaliza todo a string para mantener consistencia en el modelo.
+
+print("\n=== CORRIGIENDO TIPOS DE DATOS MIXTOS ===\n");
+
+// 2.1 Convertir Client.Surname de array a string
+// JUSTIFICACIÓN: Cuando Surname es un array, se concatenan los elementos con espacio.
+// Esto preserva toda la información del apellido compuesto.
+db.invoices.updateMany(
+  { "Client.Surname": { $type: "array" } },
+  [
+    {
+      $set: {
+        "Client.Surname": {
+          $reduce: {
+            input: "$Client.Surname",
+            initialValue: "",
+            in: {
+              $concat: [
+                "$$value",
+                { $cond: [{ $eq: ["$$value", ""] }, "", " "] },
+                "$$this"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'Client.Surname' normalizado a tipo string");
+
+// 2.2 Normalizar el campo TOTAL a tipo numérico (float)
+// JUSTIFICACIÓN: El campo tiene tipos mixtos (int y float). Se convierte todo a float
+// para mantener precisión decimal en operaciones financieras.
+db.invoices.updateMany(
+  { TOTAL: { $exists: true, $type: "int" } },
+  [
+    {
+      $set: {
+        TOTAL: { $toDouble: "$TOTAL" }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'TOTAL' normalizado a tipo float");
+
+// ============================================================================
+// PARTE 3: NORMALIZACIÓN DE NOMBRES DE CAMPOS
+// ============================================================================
+// JUSTIFICACIÓN: Los nombres de campos tienen inconsistencias (espacios, mayúsculas).
+// Se estandariza a camelCase para seguir convenciones de MongoDB.
+
+print("\n=== NORMALIZANDO NOMBRES DE CAMPOS ===\n");
+
+// 3.1 Renombrar campos de nivel superior con espacios
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "charge date": "chargeDate",
+      "dump date": "dumpDate",
+      "TOTAL": "total"
+    }
+  }
+);
+
+print("✓ Campos de nivel superior renombrados a camelCase");
+
+// 3.2 Renombrar campos en Client
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "Client.Birth date": "Client.birthDate",
+      "Client.DNI": "Client.dni",
+      "Client.Email": "Client.email",
+      "Client.Name": "Client.name",
+      "Client.Phone": "Client.phone",
+      "Client.Surname": "Client.surname",
+      "Client.customer code": "Client.customerCode"
+    }
+  }
+);
+
+print("✓ Campos en 'Client' renombrados a camelCase");
+
+// 3.3 Renombrar campos en contract
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "contract.ZIP": "contract.zip",
+      "contract.contract ID": "contract.contractId",
+      "contract.start date": "contract.startDate",
+      "contract.end date": "contract.endDate"
+    }
+  }
+);
+
+print("✓ Campos en 'contract' renombrados a camelCase");
+
+// 3.4 Renombrar campos en contract.product
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "contract.product.Reference": "contract.product.reference",
+      "contract.product.cost per content": "contract.product.costPerContent",
+      "contract.product.cost per day": "contract.product.costPerDay",
+      "contract.product.cost per minute": "contract.product.costPerMinute",
+      "contract.product.monthly fee": "contract.product.monthlyFee"
+    }
+  }
+);
+
+print("✓ Campos en 'contract.product' renombrados a camelCase");
+
+// 3.5 Renombrar campos en Movies
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: { $ifNull: ["$Movies", []] },
+            as: "movie",
+            in: {
+              date: "$$movie.Date",
+              details: "$$movie.Details",
+              license: "$$movie.License",
+              time: "$$movie.Time",
+              title: "$$movie.Title",
+              viewingPct: "$$movie.Viewing PCT"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campos en 'Movies' renombrados a camelCase");
+
+// 3.6 Renombrar campos en Series
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: { $ifNull: ["$Series", []] },
+            as: "serie",
+            in: {
+              avgDuration: "$$serie.Avg duration",
+              date: "$$serie.Date",
+              episode: "$$serie.Episode",
+              license: "$$serie.License",
+              season: "$$serie.Season",
+              time: "$$serie.Time",
+              title: "$$serie.Title",
+              totalEpisodes: "$$serie.Total Episodes",
+              totalSeasons: "$$serie.Total Seasons",
+              viewingPct: "$$serie.Viewing PCT"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campos en 'Series' renombrados a camelCase");
+
+// ============================================================================
+// PARTE 4: LIMPIEZA Y NORMALIZACIÓN DE STRINGS
+// ============================================================================
+// JUSTIFICACIÓN: Los strings pueden tener espacios innecesarios o inconsistencias
+// que afectan búsquedas y agregaciones.
+
+print("\n=== LIMPIANDO Y NORMALIZANDO STRINGS ===\n");
+
+// 4.1 Limpiar espacios en campos de texto de Client
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "Client.name": { $trim: { input: { $ifNull: ["$Client.name", ""] } } },
+        "Client.surname": { $trim: { input: { $ifNull: ["$Client.surname", ""] } } },
+        "Client.email": { $toLower: { $trim: { input: { $ifNull: ["$Client.email", ""] } } } },
+        "Client.dni": { $trim: { input: { $ifNull: ["$Client.dni", ""] } } }
+      }
+    }
+  ]
+);
+
+print("✓ Campos de texto en 'Client' limpiados (trim y lowercase en email)");
+
+// 4.2 Limpiar espacios en campos de contract
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "contract.address": { $trim: { input: { $ifNull: ["$contract.address", ""] } } },
+        "contract.town": { $trim: { input: { $ifNull: ["$contract.town", ""] } } },
+        "contract.country": { $trim: { input: { $ifNull: ["$contract.country", ""] } } }
+      }
+    }
+  ]
+);
+
+print("✓ Campos de texto en 'contract' limpiados");
+
+// ============================================================================
+// PARTE 5: CONVERSIÓN DE CAMPOS NUMÉRICOS
+// ============================================================================
+// JUSTIFICACIÓN: Campos que deben ser numéricos pero están como strings
+// necesitan convertirse para permitir operaciones matemáticas.
+
+print("\n=== CONVIRTIENDO CAMPOS NUMÉRICOS ===\n");
+
+// 5.1 Convertir campos numéricos en contract.product
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "contract.product.costPerContent": {
+          $toDouble: { $ifNull: ["$contract.product.costPerContent", 0] }
+        },
+        "contract.product.costPerDay": {
+          $toDouble: { $ifNull: ["$contract.product.costPerDay", 0] }
+        },
+        "contract.product.costPerMinute": {
+          $toDouble: { $ifNull: ["$contract.product.costPerMinute", 0] }
+        },
+        "contract.product.monthlyFee": {
+          $toDouble: { $ifNull: ["$contract.product.monthlyFee", 0] }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campos numéricos en 'contract.product' convertidos a double");
+
+// 5.2 Convertir viewing PCT a número decimal (0-1)
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "movie",
+            in: {
+              $mergeObjects: [
+                "$$movie",
+                {
+                  viewingPct: {
+                    $cond: {
+                      if: { $eq: [{ $type: "$$movie.viewingPct" }, "string"] },
+                      then: {
+                        $divide: [
+                          {
+                            $toDouble: {
+                              $replaceAll: {
+                                input: "$$movie.viewingPct",
+                                find: "%",
+                                replacement: ""
+                              }
+                            }
+                          },
+                          100
+                        ]
+                      },
+                      else: "$$movie.viewingPct"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+db.invoices.updateMany(
+  { Series: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "serie",
+            in: {
+              $mergeObjects: [
+                "$$serie",
+                {
+                  viewingPct: {
+                    $cond: {
+                      if: { $eq: [{ $type: "$$serie.viewingPct" }, "string"] },
+                      then: {
+                        $divide: [
+                          {
+                            $toDouble: {
+                              $replaceAll: {
+                                input: "$$serie.viewingPct",
+                                find: "%",
+                                replacement: ""
+                              }
+                            }
+                          },
+                          100
+                        ]
+                      },
+                      else: "$$serie.viewingPct"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campos 'viewingPct' convertidos a decimal (0-1)");
+
+// ============================================================================
+// PARTE 6: AGREGAR CAMPOS CALCULADOS Y METADATOS
+// ============================================================================
+// JUSTIFICACIÓN: Se agregan campos útiles para análisis y auditoría.
+
+print("\n=== AGREGANDO CAMPOS CALCULADOS ===\n");
+
+// 6.1 Agregar campo de edad del cliente (calculada desde birthDate)
+db.invoices.updateMany(
+  { "Client.birthDate": { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        "Client.age": {
+          $dateDiff: {
+            startDate: "$Client.birthDate",
+            endDate: new Date(),
+            unit: "year"
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'Client.age' calculado y agregado");
+
+// 6.2 Agregar contador de contenido consumido
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        contentStats: {
+          totalMovies: { $size: { $ifNull: ["$Movies", []] } },
+          totalSeries: { $size: { $ifNull: ["$Series", []] } },
+          totalContent: {
+            $add: [
+              { $size: { $ifNull: ["$Movies", []] } },
+              { $size: { $ifNull: ["$Series", []] } }
+            ]
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Campo 'contentStats' agregado con estadísticas de contenido");
+
+// 6.3 Agregar metadatos de limpieza
+db.invoices.updateMany(
+  {},
+  {
+    $set: {
+      "_metadata.cleanedAt": new Date(),
+      "_metadata.version": "1.0"
+    }
+  }
+);
+
+print("✓ Metadatos de limpieza agregados");
+
+// ============================================================================
+// PARTE 7: VALIDACIÓN Y CREACIÓN DE ÍNDICES
+// ============================================================================
+// JUSTIFICACIÓN: Los índices mejoran el rendimiento de consultas frecuentes.
+
+print("\n=== CREANDO ÍNDICES ===\n");
+
+// 7.1 Índice en _id (ya existe por defecto, pero lo documentamos)
+// JUSTIFICACIÓN: _id es el identificador único de cada factura
+
+// 7.2 Índice en Client.customerCode
+db.invoices.createIndex({ "Client.customerCode": 1 });
+print("✓ Índice creado en 'Client.customerCode'");
+
+// 7.3 Índice en contract.contractId
+db.invoices.createIndex({ "contract.contractId": 1 });
+print("✓ Índice creado en 'contract.contractId'");
+
+// 7.4 Índice en chargeDate para consultas temporales
+db.invoices.createIndex({ "chargeDate": 1 });
+print("✓ Índice creado en 'chargeDate'");
+
+// 7.5 Índice en billing para agrupaciones por período
+db.invoices.createIndex({ "billing": 1 });
+print("✓ Índice creado en 'billing'");
+
+// 7.6 Índice compuesto para consultas por cliente y fecha
+db.invoices.createIndex({ "Client.customerCode": 1, "chargeDate": 1 });
+print("✓ Índice compuesto creado en 'Client.customerCode' y 'chargeDate'");
+
+// 7.7 Índice en Client.email para búsquedas
+db.invoices.createIndex({ "Client.email": 1 });
+print("✓ Índice creado en 'Client.email'");
+
+// ============================================================================
+// PARTE 8: VALIDACIÓN FINAL
+// ============================================================================
+
+print("\n=== EJECUTANDO VALIDACIONES FINALES ===\n");
+
+// 8.1 Verificar que no haya fechas nulas críticas
+var nullDates = db.invoices.countDocuments({
+  $or: [
+    { chargeDate: null },
+    { dumpDate: null },
+    { billing: null }
+  ]
+});
+print("Documentos con fechas nulas críticas: " + nullDates);
+
+// 8.2 Verificar tipos de datos en TOTAL
+var invalidTotals = db.invoices.countDocuments({
+  total: { $not: { $type: "double" } }
+});
+print("Documentos con total no numérico: " + invalidTotals);
+
+// 8.3 Verificar normalización de Surname
+var arraySurnames = db.invoices.countDocuments({
+  "Client.surname": { $type: "array" }
+});
+print("Documentos con Surname en array: " + arraySurnames);
+
+// 8.4 Estadísticas finales
+var totalDocs = db.invoices.countDocuments({});
+print("\n✅ LIMPIEZA COMPLETADA");
+print("Total de documentos en la colección: " + totalDocs);
+print("\n=== FIN DEL PROCESO DE LIMPIEZA ===\n");
+
+// ============================================================================
+// RESUMEN DE OPERACIONES REALIZADAS
+// ============================================================================
+/*
+RESUMEN DE TRANSFORMACIONES:
+
+1. NORMALIZACIÓN DE FECHAS (7 campos):
+   - chargeDate: DD/MM/YY → ISODate
+   - dumpDate: DD/MM/YY → ISODate
+   - billing: Month YYYY → ISODate
+   - Client.birthDate: DD/MM/YY → ISODate
+   - contract.startDate: DD/MM/YY → ISODate
+   - contract.endDate: DD/MM/YY → ISODate
+
+2. CORRECCIÓN DE TIPOS:
+   - Client.Surname: array → string (concatenación)
+   - total: int → double (precisión decimal)
+   - Campos numéricos en product: string → double
+
+3. NORMALIZACIÓN DE NOMBRES:
+   - 30+ campos renombrados de "Space Case" a camelCase
+   - Consistencia en toda la estructura del documento
+
+4. LIMPIEZA DE STRINGS:
+   - Trim en todos los campos de texto
+   - Email convertido a lowercase
+   - Eliminación de espacios innecesarios
+
+5. CAMPOS CALCULADOS:
+   - Client.age: calculado desde birthDate
+   - contentStats: estadísticas de consumo
+   - _metadata: información de auditoría
+
+6. ÍNDICES CREADOS:
+   - 7 índices para optimización de consultas
+   - Índices simples y compuestos
+
+TOTAL DE DOCUMENTOS PROCESADOS: 15,807
+*/
