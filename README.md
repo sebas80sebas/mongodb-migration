@@ -12,6 +12,11 @@ sudo dpkg -i mongodb-database-tools-ubuntu2204-x86_64-100.9.4.deb
 mongoimport --version
 ```
 
+### Instalar pymongo (para reestructuración)
+```bash
+pip install pymongo
+```
+
 ## Análisis Exploratorio de Datos
 
 Ejecutar el siguiente comando
@@ -40,30 +45,8 @@ CARGANDO ARCHIVOS JSON
 
 📁 Procesando: dump02_16.json
    ✓ Cargados 1244 documentos (encoding: utf-8)
-
-📁 Procesando: dump03_16.json
-   ✓ Cargados 1253 documentos (encoding: utf-8)
-
-📁 Procesando: dump04_16.json
-   ✓ Cargados 1276 documentos (encoding: utf-8)
-
-📁 Procesando: dump05_16.json
-   ✓ Cargados 1294 documentos (encoding: utf-8)
-
-📁 Procesando: dump06_16.json
-   ✓ Cargados 1333 documentos (encoding: utf-8)
-
-📁 Procesando: dump07_16.json
-   ✓ Cargados 1330 documentos (encoding: utf-8)
-
-📁 Procesando: dump08_16.json
-   ✓ Cargados 1361 documentos (encoding: utf-8)
-
-📁 Procesando: dump09_16.json
-   ✓ Cargados 1366 documentos (encoding: utf-8)
-
-📁 Procesando: dump10_16.json
-   ✓ Cargados 1368 documentos (encoding: utf-8)
+   
+...
 
 
 TOTAL DE DOCUMENTOS CARGADOS: 15807
@@ -901,3 +884,364 @@ Total de documentos en la colección: 15807
 
 === FIN DEL PROCESO DE LIMPIEZA ===
 ```
+
+---
+
+## Reestructuración del Modelo de Datos
+
+### Objetivo
+Transformar el modelo de datos desde una colección única de facturas con datos anidados redundantes hacia un **modelo normalizado** con tres colecciones especializadas:
+
+1. **movies**: Catálogo de películas (deduplica información de películas)
+2. **series**: Catálogo de series (deduplica información de series)
+3. **invoices_restructured**: Facturas simplificadas con referencias a movies y series
+
+### Justificación de la Reestructuración
+
+#### Problemas del Modelo Original
+1. **Redundancia Masiva**: Los detalles de cada película/serie se repiten en cada factura
+2. **Desperdicio de Almacenamiento**: ~87.61 MB con información duplicada
+3. **Inconsistencias**: Misma película puede tener datos diferentes en distintas facturas
+4. **Dificultad de Análisis**: No se puede consultar el catálogo de contenido fácilmente
+5. **Escalabilidad Limitada**: Cada nueva factura aumenta el tamaño innecesariamente
+
+#### Beneficios del Modelo Normalizado
+1. **Eliminación de Redundancia**: 59.7% de reducción de almacenamiento (87.61 MB → 35.32 MB)
+2. **Consistencia de Datos**: Una sola versión de verdad para cada película/serie
+3. **Consultas Eficientes**: Índices especializados por tipo de colección
+4. **Análisis de Contenido**: Facilita estudios de popularidad, géneros, etc.
+5. **Escalabilidad**: Nuevo contenido no aumenta facturas existentes
+6. **Mantenibilidad**: Actualizar datos de una película afecta todas las referencias
+
+### Estructura del Nuevo Modelo
+
+#### Colección: movies
+```json
+{
+  "_id": ObjectId("..."),
+  "title": "The Shawshank Redemption",
+  "details": {
+    "director": "Frank Darabont",
+    "cast": ["Tim Robbins", "Morgan Freeman"],
+    "genre": ["Drama"],
+    "keywords": ["prison", "friendship", "hope"],
+    "languages": ["English"],
+    "country": "USA",
+    "rating": "9.3",
+    "income": 28341469,
+    "filmingLocations": ["Ohio Prison"],
+    "releaseDate": ISODate("1994-09-23")
+  },
+  "duration": 142,
+  "_metadata": {
+    "createdAt": ISODate("2024-10-30T..."),
+    "version": "1.0"
+  }
+}
+```
+
+#### Colección: series
+```json
+{
+  "_id": ObjectId("..."),
+  "title": "Breaking Bad",
+  "totalSeasons": 5,
+  "totalEpisodes": 62,
+  "avgDuration": 47,
+  "_metadata": {
+    "createdAt": ISODate("2024-10-30T..."),
+    "version": "1.0"
+  }
+}
+```
+
+#### Colección: invoices_restructured
+```json
+{
+  "_id": ObjectId("..."),
+  "client": {
+    "customerCode": "CUST001",
+    "name": "John",
+    "surname": "Doe",
+    "email": "john.doe@email.com",
+    "phone": "+34600000000",
+    "dni": "12345678A",
+    "birthDate": ISODate("1990-01-15")
+  },
+  "contract": {
+    "contractId": "CNT001",
+    "startDate": ISODate("2016-01-01"),
+    "endDate": ISODate("2017-01-01"),
+    "address": "Calle Principal 123",
+    "zip": "28001",
+    "town": "Madrid",
+    "country": "Spain",
+    "product": {
+      "reference": "PREMIUM",
+      "type": "Subscription",
+      "monthlyFee": 19.99,
+      "costPerDay": 0.0,
+      "costPerMinute": 0.0,
+      "costPerContent": 0.0,
+      "zapping": true,
+      "promotion": "Welcome50"
+    }
+  },
+  "billing": ISODate("2016-11-01"),
+  "chargeDate": ISODate("2017-05-03"),
+  "dumpDate": ISODate("2016-10-14"),
+  "total": 245.67,
+  "movies": [
+    {
+      "movieId": ObjectId("..."),  // Referencia a colección movies
+      "date": ISODate("2016-11-15"),
+      "time": ISODate("1900-01-01T20:30:00"),
+      "viewingPct": 0.85,
+      "license": "Standard"
+    }
+  ],
+  "series": [
+    {
+      "seriesId": ObjectId("..."),  // Referencia a colección series
+      "season": 3,
+      "episode": 7,
+      "date": ISODate("2016-11-20"),
+      "time": ISODate("1900-01-01T21:00:00"),
+      "viewingPct": 1.0,
+      "license": "Premium"
+    }
+  ],
+  "_metadata": {
+    "restructuredAt": ISODate("2024-10-30T..."),
+    "version": "2.0"
+  }
+}
+```
+
+### Índices Creados en las Nuevas Colecciones
+
+#### Movies (3 índices)
+```javascript
+// Búsqueda por título (único)
+db.movies.createIndex({ "title": 1 }, { unique: true })
+
+// Filtrado por género
+db.movies.createIndex({ "details.genre": 1 })
+
+// Ordenamiento por fecha de estreno
+db.movies.createIndex({ "details.releaseDate": 1 })
+```
+
+#### Series (2 índices)
+```javascript
+// Búsqueda por título (único)
+db.series.createIndex({ "title": 1 }, { unique: true })
+
+// Filtrado por número de temporadas
+db.series.createIndex({ "totalSeasons": 1 })
+```
+
+#### Invoices Restructured (7 índices)
+```javascript
+// Búsqueda por cliente
+db.invoices_restructured.createIndex({ "client.customerCode": 1 })
+
+// Búsqueda por contrato
+db.invoices_restructured.createIndex({ "contract.contractId": 1 })
+
+// Consultas temporales
+db.invoices_restructured.createIndex({ "chargeDate": 1 })
+
+// Agrupaciones por período
+db.invoices_restructured.createIndex({ "billing": 1 })
+
+// Análisis de películas consumidas
+db.invoices_restructured.createIndex({ "movies.movieId": 1 })
+
+// Análisis de series consumidas
+db.invoices_restructured.createIndex({ "series.seriesId": 1 })
+
+// Consultas combinadas cliente-fecha
+db.invoices_restructured.createIndex({ "client.customerCode": 1, "chargeDate": 1 })
+```
+
+### Proceso de Reestructuración
+
+#### 1. Preparación del Script
+
+El script `PO22_05_07_2_reestructuracion.txt` contiene código Python que:
+- Se conecta a MongoDB
+- Lee de la colección `invoices` (ya limpia)
+- Extrae y deduplica películas y series
+- Crea referencias desde facturas a contenido
+- Genera las nuevas colecciones
+
+#### 2. Ejecución del Script
+
+```bash
+# Copiar el archivo .txt a .py para ejecución
+cp PO22_05_07_2_reestructuracion.txt PO22_05_07_2_reestructuracion.py
+
+# Ejecutar el script de reestructuración
+python3 PO22_05_07_2_reestructuracion.py
+```
+
+#### 3. Salida Esperada
+
+```bash
+================================================================================
+                      REESTRUCTURACIÓN DEL MODELO DE DATOS                      
+================================================================================
+
+
+🗑️  Limpiando colecciones destino...
+   ✓ Colecciones limpias
+
+
+📽️  PASO 1: EXTRAYENDO PELÍCULAS
+--------------------------------------------------------------------------------
+   Procesando factura 1000/11403...
+   Procesando factura 2000/11403...
+   Procesando factura 3000/11403...
+   ...
+   Procesando factura 11000/11403...
+
+✅ Películas únicas encontradas: 4914
+   Insertando en colección 'movies'...
+✅ 4914 películas insertadas
+
+📺 PASO 2: EXTRAYENDO SERIES Y TEMPORADAS
+--------------------------------------------------------------------------------
+   Procesando factura 1000/12671...
+   Procesando factura 2000/12671...
+   ...
+   Procesando factura 12000/12671...
+
+✅ Series únicas encontradas: 80
+   Insertando en colección 'series'...
+✅ 80 series insertadas
+
+🧾 PASO 3: REESTRUCTURANDO FACTURAS
+--------------------------------------------------------------------------------
+   Procesando factura 1000/15807...
+   Procesando factura 2000/15807...
+   ...
+   Procesando factura 15000/15807...
+
+✅ 15807 facturas reestructuradas
+
+🔍 PASO 4: CREANDO ÍNDICES
+--------------------------------------------------------------------------------
+   Creando índices en 'movies'...
+   ✓ 3 índices creados en 'movies'
+   Creando índices en 'series'...
+   ✓ 2 índices creados en 'series'
+   Creando índices en 'invoices_restructured'...
+   ✓ 7 índices creados en 'invoices_restructured'
+
+✔️  PASO 5: VALIDACIÓN
+--------------------------------------------------------------------------------
+   Películas únicas: 4914
+   Series únicas: 80
+   Facturas reestructuradas: 15807
+   Facturas originales: 15807
+
+   ✅ Validación exitosa: Todas las facturas fueron procesadas
+   ✅ Referencias a películas verificadas
+
+================================================================================
+                          RESUMEN DE REESTRUCTURACIÓN                           
+================================================================================
+
+📊 ESTADÍSTICAS:
+   • Películas únicas: 4,914
+   • Series únicas: 80
+   • Facturas reestructuradas: 15,807
+
+💾 OPTIMIZACIÓN DE ALMACENAMIENTO:
+   • Tamaño original: 87.61 MB
+   • Tamaño nuevo: 35.32 MB
+   • Reducción: 59.7%
+
+🎯 BENEFICIOS:
+   ✓ Eliminación de redundancia
+   ✓ Modelo normalizado y escalable
+   ✓ Consultas más eficientes
+   ✓ Facilita análisis de contenido
+   ✓ Preparado para métricas de consumo
+
+⏱️  Tiempo total: 10.49 segundos
+
+================================================================================
+                    REESTRUCTURACIÓN COMPLETADA EXITOSAMENTE                    
+================================================================================
+```
+
+### Verificación en MongoDB Compass
+
+Después de ejecutar el script, puedes verificar en MongoDB Compass:
+
+1. **Colección movies**: 4,914 documentos
+2. **Colección series**: 80 documentos
+3. **Colección invoices_restructured**: 15,807 documentos
+
+### Ejemplos de Consultas en el Nuevo Modelo
+
+#### Consultar catálogo de películas por género
+```javascript
+db.movies.find({ "details.genre": "Action" })
+```
+
+#### Obtener una factura con datos completos de películas
+```javascript
+db.invoices_restructured.aggregate([
+  { $match: { "client.customerCode": "CUST001" } },
+  { $unwind: "$movies" },
+  { $lookup: {
+      from: "movies",
+      localField: "movies.movieId",
+      foreignField: "_id",
+      as: "movieDetails"
+  }},
+  { $unwind: "$movieDetails" }
+])
+```
+
+#### Top 10 películas más vistas
+```javascript
+db.invoices_restructured.aggregate([
+  { $unwind: "$movies" },
+  { $group: {
+      _id: "$movies.movieId",
+      totalViews: { $sum: 1 },
+      avgViewingPct: { $avg: "$movies.viewingPct" }
+  }},
+  { $sort: { totalViews: -1 } },
+  { $limit: 10 },
+  { $lookup: {
+      from: "movies",
+      localField: "_id",
+      foreignField: "_id",
+      as: "movie"
+  }}
+])
+```
+
+#### Clientes que más contenido consumen
+```javascript
+db.invoices_restructured.aggregate([
+  { $group: {
+      _id: "$client.customerCode",
+      totalMovies: { $sum: { $size: "$movies" } },
+      totalSeries: { $sum: { $size: "$series" } },
+      totalContent: { $sum: { $add: [
+          { $size: "$movies" },
+          { $size: "$series" }
+      ]}}
+  }},
+  { $sort: { totalContent: -1 } },
+  { $limit: 10 }
+])
+```
+
+---
