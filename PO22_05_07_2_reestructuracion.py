@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """
-Script de Reestructuración del Modelo de Datos (VERSIÓN PARA DATOS LIMPIOS)
-Lee desde la colección 'invoices' que ya fue limpiada con limpieza.txt
+Script de Reestructuración del Modelo de Datos (VERSIÓN CORREGIDA)
+Lee desde la colección 'invoices' que ya fue limpiada
 Transforma en tres colecciones especializadas:
 - movies: Información de películas
-- series: Información de series y temporadas
+- series: Información de series
 - invoices_restructured: Facturas simplificadas con referencias
 """
 
 from pymongo import MongoClient, ASCENDING
-from bson import ObjectId, Decimal128
+from bson import ObjectId
 from datetime import datetime
-from collections import defaultdict
 
 # Configuración de MongoDB
 MONGO_URI = "mongodb://localhost:27017/"
-DATABASE_NAME = "streamit_db"  # ⚠️ Ajusta al nombre de tu base de datos
-SOURCE_COLLECTION = "invoices"  # Ya limpia con camelCase
+DATABASE_NAME = "streamit_db"
+SOURCE_COLLECTION = "invoices"
 MOVIES_COLLECTION = "movies"
 SERIES_COLLECTION = "series"
 INVOICES_COLLECTION = "invoices_restructured"
@@ -50,13 +49,11 @@ class DataRestructurer:
 
     def extract_movies(self):
         """Extrae y deduplica películas de las facturas"""
-        print("\n📽️  PASO 1: EXTRAYENDO PELÍCULAS")
+        print("\n🎬 PASO 1: EXTRAYENDO PELÍCULAS")
         print("-" * 80)
         
         movies_dict = {}
         
-        # ⚠️ CAMBIO: Usar "Movies" con mayúscula (como está en los datos limpios)
-        # Si después de la limpieza quedó en minúsculas, usar "movies"
         invoices = self.invoices_source.find({"Movies": {"$exists": True, "$ne": []}})
         total_invoices = self.invoices_source.count_documents({"Movies": {"$exists": True, "$ne": []}})
         
@@ -66,7 +63,6 @@ class DataRestructurer:
             if processed % 1000 == 0:
                 print(f"   Procesando factura {processed}/{total_invoices}...")
             
-            # ⚠️ CAMBIO: Los campos ya están en camelCase
             for movie in invoice.get("Movies", []):
                 title = self.normalize_string(movie.get("title", ""))
                 
@@ -76,40 +72,85 @@ class DataRestructurer:
                 movie_key = title.lower()
                 
                 if movie_key not in movies_dict:
-                    # ⚠️ CAMBIO: details ya está limpio y estructurado
-                    details_raw = movie.get("details", {})
+                    details = movie.get("details", {})
                     
-                    # Parsear director y cast (mantener estructura original)
-                    director_info = details_raw.get("director", {})
-                    director_name = director_info.get("name", "") if isinstance(director_info, dict) else str(director_info)
+                    # Extraer director
+                    director_data = details.get("director", {})
+                    director_name = ""
+                    director_fb_likes = 0
                     
+                    if isinstance(director_data, dict):
+                        director_name = self.normalize_string(director_data.get("name", ""))
+                        director_fb_likes = director_data.get("facebookLikes", 0) or 0
+                    elif isinstance(director_data, str):
+                        director_name = self.normalize_string(director_data)
+                    
+                    # Extraer cast
                     cast_list = []
-                    cast_raw = details_raw.get("cast", {})
-                    if isinstance(cast_raw, dict):
-                        stars = cast_raw.get("stars", [])
+                    cast_data = details.get("cast", {})
+                    cast_fb_likes = 0
+                    
+                    if isinstance(cast_data, dict):
+                        cast_fb_likes = cast_data.get("facebookLikes", 0) or 0
+                        stars = cast_data.get("stars", [])
+                        
                         if isinstance(stars, list):
                             for star in stars:
                                 if isinstance(star, dict):
-                                    cast_list.append(star.get("name", ""))
-                                elif isinstance(star, str):
-                                    cast_list.append(star)
+                                    actor_name = self.normalize_string(star.get("player", ""))
+                                    actor_fb_likes = star.get("facebookLikes", 0) or 0
+                                    
+                                    if actor_name:
+                                        cast_list.append({
+                                            "name": actor_name,
+                                            "facebookLikes": actor_fb_likes
+                                        })
+                    
+                    # Extraer géneros
+                    genres = details.get("genres", [])
+                    if isinstance(genres, list):
+                        genres = [self.normalize_string(g) for g in genres if g]
+                    else:
+                        genres = []
+                    
+                    # Extraer keywords
+                    keywords = details.get("keywords", [])
+                    if isinstance(keywords, list):
+                        keywords = [self.normalize_string(k) for k in keywords if k]
+                    else:
+                        keywords = []
                     
                     # Crear documento de película
                     movie_doc = {
                         "title": title,
                         "details": {
-                            "director": self.normalize_string(director_name),
-                            "cast": [self.normalize_string(name) for name in cast_list if name],
-                            "genre": [self.normalize_string(g) for g in details_raw.get("genre", [])],
-                            "keywords": [self.normalize_string(k) for k in details_raw.get("keywords", [])],
-                            "languages": [self.normalize_string(lang) for lang in details_raw.get("languages", [])],
-                            "country": self.normalize_string(details_raw.get("country", "")),
-                            "rating": details_raw.get("rating", ""),
-                            "income": details_raw.get("income", 0),  # Ya debería estar limpio
-                            "filmingLocations": [self.normalize_string(loc) for loc in details_raw.get("filmingLocations", [])],
-                            "releaseDate": details_raw.get("releaseDate")  # Ya debería ser ISODate
+                            "year": details.get("year"),
+                            "country": self.normalize_string(details.get("country", "")),
+                            "color": details.get("color", ""),
+                            "aspectRatio": details.get("aspectRatio"),
+                            "contentRating": details.get("contentRating", ""),
+                            "budget": details.get("budget", 0) or 0,
+                            "gross": details.get("gross", 0) or 0,
+                            "director": {
+                                "name": director_name,
+                                "facebookLikes": director_fb_likes
+                            },
+                            "cast": {
+                                "facebookLikes": cast_fb_likes,
+                                "stars": cast_list
+                            },
+                            "language": details.get("language", ""),
+                            "genres": genres,
+                            "keywords": keywords,
+                            "facesInPoster": details.get("facesInPoster", 0) or 0,
+                            "imdbScore": details.get("imdbScore", 0.0) or 0.0,
+                            "imdbLink": details.get("imdbLink", ""),
+                            "criticReviews": details.get("criticReviews", 0) or 0,
+                            "userReviews": details.get("userReviews", 0) or 0,
+                            "votedUsers": details.get("votedUsers", 0) or 0,
+                            "facebookLikes": details.get("facebookLikes", 0) or 0,
+                            "duration": details.get("duration", 0) or 0
                         },
-                        "duration": int(details_raw.get("duration", 0)) if details_raw.get("duration") else 0,
                         "_metadata": {
                             "createdAt": datetime.utcnow(),
                             "version": "1.0"
@@ -141,7 +182,6 @@ class DataRestructurer:
         
         series_dict = {}
         
-        # ⚠️ CAMBIO: Usar "Series" con mayúscula
         invoices = self.invoices_source.find({"Series": {"$exists": True, "$ne": []}})
         total_invoices = self.invoices_source.count_documents({"Series": {"$exists": True, "$ne": []}})
         
@@ -151,7 +191,6 @@ class DataRestructurer:
             if processed % 1000 == 0:
                 print(f"   Procesando factura {processed}/{total_invoices}...")
             
-            # ⚠️ CAMBIO: Los campos ya están en camelCase
             for series in invoice.get("Series", []):
                 title = self.normalize_string(series.get("title", ""))
                 
@@ -164,9 +203,9 @@ class DataRestructurer:
                     # Crear documento de serie
                     series_doc = {
                         "title": title,
-                        "totalSeasons": int(series.get("totalSeasons", 0)),
-                        "totalEpisodes": int(series.get("totalEpisodes", 0)),
-                        "avgDuration": int(series.get("avgDuration", 0)),
+                        "totalSeasons": int(series.get("totalSeasons", 0) or 0),
+                        "totalEpisodes": int(series.get("totalEpisodes", 0) or 0),
+                        "avgDuration": int(series.get("avgDuration", 0) or 0),
                         "_metadata": {
                             "createdAt": datetime.utcnow(),
                             "version": "1.0"
@@ -209,7 +248,6 @@ class DataRestructurer:
             if processed % 1000 == 0:
                 print(f"   Procesando factura {processed}/{total}...")
             
-            # ⚠️ CAMBIO: Los nombres de campos ya están en camelCase
             client_data = invoice.get("Client", {})
             contract_data = invoice.get("contract", {})
             product_data = contract_data.get("product", {})
@@ -224,7 +262,8 @@ class DataRestructurer:
                     "email": client_data.get("email"),
                     "phone": client_data.get("phone"),
                     "dni": client_data.get("dni"),
-                    "birthDate": client_data.get("birthDate")
+                    "birthDate": client_data.get("birthDate"),
+                    "age": client_data.get("age")
                 },
                 "contract": {
                     "contractId": contract_data.get("contractId"),
@@ -249,6 +288,7 @@ class DataRestructurer:
                 "chargeDate": invoice.get("chargeDate"),
                 "dumpDate": invoice.get("dumpDate"),
                 "total": invoice.get("total"),
+                "contentStats": invoice.get("contentStats", {}),
                 "movies": [],
                 "series": [],
                 "_metadata": {
@@ -265,10 +305,10 @@ class DataRestructurer:
                 if movie_key in self.movies_map:
                     movie_ref = {
                         "movieId": self.movies_map[movie_key],
-                        "date": movie.get("date"),  # Ya debería ser ISODate
-                        "time": movie.get("time"),  # Ya debería estar limpio
-                        "viewingPct": movie.get("viewingPct", 0.0),  # Ya debería ser decimal
-                        "license": movie.get("license", "")
+                        "date": movie.get("date"),
+                        "time": movie.get("time"),
+                        "viewingPct": movie.get("viewingPct", 0.0) or 0.0,
+                        "license": movie.get("license", {})
                     }
                     new_invoice["movies"].append(movie_ref)
             
@@ -280,12 +320,12 @@ class DataRestructurer:
                 if series_key in self.series_map:
                     series_ref = {
                         "seriesId": self.series_map[series_key],
-                        "season": int(series.get("season", 0)),
-                        "episode": int(series.get("episode", 0)),
-                        "date": series.get("date"),  # Ya debería ser ISODate
+                        "season": int(series.get("season", 0) or 0),
+                        "episode": int(series.get("episode", 0) or 0),
+                        "date": series.get("date"),
                         "time": series.get("time"),
-                        "viewingPct": series.get("viewingPct", 0.0),
-                        "license": series.get("license", "")
+                        "viewingPct": series.get("viewingPct", 0.0) or 0.0,
+                        "license": series.get("license", {})
                     }
                     new_invoice["series"].append(series_ref)
             
@@ -310,9 +350,10 @@ class DataRestructurer:
         # Índices en Movies
         print("   Creando índices en 'movies'...")
         self.movies_collection.create_index([("title", ASCENDING)], unique=True)
-        self.movies_collection.create_index([("details.genre", ASCENDING)])
-        self.movies_collection.create_index([("details.releaseDate", ASCENDING)])
-        print("   ✓ 3 índices creados en 'movies'")
+        self.movies_collection.create_index([("details.genres", ASCENDING)])
+        self.movies_collection.create_index([("details.year", ASCENDING)])
+        self.movies_collection.create_index([("details.director.name", ASCENDING)])
+        print("   ✓ 4 índices creados en 'movies'")
         
         # Índices en Series
         print("   Creando índices en 'series'...")
@@ -354,7 +395,7 @@ class DataRestructurer:
         
         # Verificar referencias
         sample_invoice = self.invoices_new.find_one({"movies": {"$ne": []}})
-        if sample_invoice:
+        if sample_invoice and len(sample_invoice.get("movies", [])) > 0:
             movie_id = sample_invoice["movies"][0]["movieId"]
             movie_exists = self.movies_collection.find_one({"_id": movie_id})
             
@@ -362,6 +403,12 @@ class DataRestructurer:
                 print("   ✅ Referencias a películas verificadas")
             else:
                 print("   ⚠️  Error: Referencias rotas en películas")
+        
+        # Verificar que movies tiene detalles
+        movies_with_details = self.movies_collection.count_documents({
+            "details.director.name": {"$ne": ""}
+        })
+        print(f"   ✅ Películas con información de director: {movies_with_details}/{movies_count}")
 
     def generate_report(self):
         """Genera reporte final"""
@@ -374,23 +421,28 @@ class DataRestructurer:
         invoices_count = self.invoices_new.count_documents({})
         
         # Calcular reducción de tamaño
-        original_size = self.db.command("collstats", SOURCE_COLLECTION)["size"]
-        new_size = (
-            self.db.command("collstats", MOVIES_COLLECTION)["size"] +
-            self.db.command("collstats", SERIES_COLLECTION)["size"] +
-            self.db.command("collstats", INVOICES_COLLECTION)["size"]
-        )
-        
-        reduction_pct = ((original_size - new_size) / original_size) * 100 if original_size > 0 else 0
+        try:
+            original_size = self.db.command("collstats", SOURCE_COLLECTION)["size"]
+            new_size = (
+                self.db.command("collstats", MOVIES_COLLECTION)["size"] +
+                self.db.command("collstats", SERIES_COLLECTION)["size"] +
+                self.db.command("collstats", INVOICES_COLLECTION)["size"]
+            )
+            
+            reduction_pct = ((original_size - new_size) / original_size) * 100 if original_size > 0 else 0
+            
+            print(f"\n💾 OPTIMIZACIÓN DE ALMACENAMIENTO:")
+            print(f"   • Tamaño original: {original_size / 1024 / 1024:.2f} MB")
+            print(f"   • Tamaño nuevo: {new_size / 1024 / 1024:.2f} MB")
+            print(f"   • Reducción: {reduction_pct:.1f}%")
+        except Exception as e:
+            print(f"\n💾 OPTIMIZACIÓN DE ALMACENAMIENTO:")
+            print(f"   ⚠️  No se pudo calcular el tamaño: {e}")
         
         print(f"\n📊 ESTADÍSTICAS:")
         print(f"   • Películas únicas: {movies_count:,}")
         print(f"   • Series únicas: {series_count:,}")
         print(f"   • Facturas reestructuradas: {invoices_count:,}")
-        print(f"\n💾 OPTIMIZACIÓN DE ALMACENAMIENTO:")
-        print(f"   • Tamaño original: {original_size / 1024 / 1024:.2f} MB")
-        print(f"   • Tamaño nuevo: {new_size / 1024 / 1024:.2f} MB")
-        print(f"   • Reducción: {reduction_pct:.1f}%")
         
         print(f"\n🎯 BENEFICIOS:")
         print(f"   ✓ Eliminación de redundancia")

@@ -1,0 +1,300 @@
+// ============================================================================
+// SCRIPT DE VALIDACIÓN CORREGIDO - STREAMIT DB
+// ============================================================================
+
+print("\n" + "=".repeat(80));
+print("VALIDACIÓN DE LIMPIEZA DE DATOS");
+print("=".repeat(80) + "\n");
+
+var totalDocs = db.invoices.countDocuments({});
+var totalErrors = 0;
+var errors = [];
+
+// ====================
+// VALIDACIONES SIMPLES
+// ====================
+
+print("VALIDACIONES DE CAMPOS SIMPLES:\n");
+
+var simpleChecks = [
+  {
+    name: "Fechas nulas críticas",
+    query: { $or: [{ chargeDate: null }, { dumpDate: null }, { billing: null }] }
+  },
+  {
+    name: "total no Decimal128",
+    query: { total: { $not: { $type: "decimal" } } }
+  },
+  {
+    name: "Surname en array",
+    query: { "Client.surname": { $type: "array" } }
+  },
+  {
+    name: "Emails inválidos",
+    query: { "Client.email": { $not: { $regex: /@/ } } }
+  },
+  {
+    name: "DNIs faltantes",
+    query: { $or: [{ "Client.dni": "" }, { "Client.dni": null }] }
+  },
+  {
+    name: "Fechas nacimiento futuras",
+    query: { "Client.birthDate": { $gt: new Date() } }
+  },
+  {
+    name: "Edades inválidas",
+    query: { $or: [{ "Client.age": { $lt: 0 } }, { "Client.age": { $gt: 120 } }] }
+  },
+  {
+    name: "Teléfonos no Int64",
+    query: { "Client.phone": { $not: { $type: "long" } } }
+  },
+  {
+    name: "Campos monetarios no Decimal128",
+    query: {
+      $or: [
+        { "contract.product.monthlyFee": { $not: { $type: "decimal" } } },
+        { "contract.product.costPerContent": { $not: { $type: "decimal" } } },
+        { "contract.product.costPerDay": { $not: { $type: "decimal" } } },
+        { "contract.product.costPerMinute": { $not: { $type: "decimal" } } }
+      ]
+    }
+  }
+];
+
+simpleChecks.forEach(function(check) {
+  var count = db.invoices.countDocuments(check.query);
+  if (count > 0) {
+    print("❌ " + check.name + ": " + count);
+    totalErrors += count;
+    errors.push(check.name);
+  } else {
+    print("✓ " + check.name + ": 0");
+  }
+});
+
+// ====================
+// VALIDACIONES DE ARRAYS (MOVIES)
+// ====================
+
+print("\nVALIDACIONES DE MOVIES:\n");
+
+// Verificar viewingPct en Movies
+var moviesWithInvalidViewingPct = db.invoices.aggregate([
+  { $match: { Movies: { $exists: true, $ne: [] } } },
+  { $unwind: "$Movies" },
+  {
+    $match: {
+      $or: [
+        { "Movies.viewingPct": { $not: { $type: "int" } } },
+        { "Movies.viewingPct": { $exists: false } }
+      ]
+    }
+  },
+  { $count: "total" }
+]).toArray();
+
+var moviesViewingPctErrors = moviesWithInvalidViewingPct.length > 0 ? moviesWithInvalidViewingPct[0].total : 0;
+if (moviesViewingPctErrors > 0) {
+  print("❌ Movies.viewingPct no Int32: " + moviesViewingPctErrors);
+  totalErrors += moviesViewingPctErrors;
+  errors.push("Movies.viewingPct");
+} else {
+  print("✓ Movies.viewingPct Int32: 0 errores");
+}
+
+// Verificar campos numéricos en Movies.details
+var moviesDetailsChecks = [
+  { field: "year", type: "int", name: "Movies.details.year" },
+  { field: "duration", type: "int", name: "Movies.details.duration" },
+  { field: "criticReviews", type: "int", name: "Movies.details.criticReviews" },
+  { field: "userReviews", type: "int", name: "Movies.details.userReviews" },
+  { field: "votedUsers", type: "int", name: "Movies.details.votedUsers" },
+  { field: "facebookLikes", type: "int", name: "Movies.details.facebookLikes" },
+  { field: "facesInPoster", type: "int", name: "Movies.details.facesInPoster" },
+  { field: "budget", type: "decimal", name: "Movies.details.budget" },
+  { field: "gross", type: "decimal", name: "Movies.details.gross" }
+];
+
+moviesDetailsChecks.forEach(function(check) {
+  var fieldPath = "Movies.details." + check.field;
+  var matchCondition = {};
+  matchCondition[fieldPath] = { $not: { $type: check.type } };
+  
+  var result = db.invoices.aggregate([
+    { $match: { Movies: { $exists: true, $ne: [] } } },
+    { $unwind: "$Movies" },
+    { $match: matchCondition },
+    { $count: "total" }
+  ]).toArray();
+  
+  var count = result.length > 0 ? result[0].total : 0;
+  if (count > 0) {
+    print("❌ " + check.name + " no " + check.type.toUpperCase() + ": " + count);
+    totalErrors += count;
+    errors.push(check.name);
+  } else {
+    print("✓ " + check.name + " " + check.type.toUpperCase() + ": 0 errores");
+  }
+});
+
+// Verificar fechas en Movies
+var moviesWithStringDate = db.invoices.aggregate([
+  { $match: { Movies: { $exists: true, $ne: [] } } },
+  { $unwind: "$Movies" },
+  { $match: { "Movies.date": { $type: "string" } } },
+  { $count: "total" }
+]).toArray();
+
+var moviesDateErrors = moviesWithStringDate.length > 0 ? moviesWithStringDate[0].total : 0;
+if (moviesDateErrors > 0) {
+  print("❌ Movies.date como string: " + moviesDateErrors);
+  totalErrors += moviesDateErrors;
+  errors.push("Movies.date");
+} else {
+  print("✓ Movies.date ISODate: 0 errores");
+}
+
+// ====================
+// VALIDACIONES DE ARRAYS (SERIES)
+// ====================
+
+print("\nVALIDACIONES DE SERIES:\n");
+
+// Verificar viewingPct en Series
+var seriesWithInvalidViewingPct = db.invoices.aggregate([
+  { $match: { Series: { $exists: true, $ne: [] } } },
+  { $unwind: "$Series" },
+  {
+    $match: {
+      $or: [
+        { "Series.viewingPct": { $not: { $type: "int" } } },
+        { "Series.viewingPct": { $exists: false }  }
+      ]
+    }
+  },
+  { $count: "total" }
+]).toArray();
+
+var seriesViewingPctErrors = seriesWithInvalidViewingPct.length > 0 ? seriesWithInvalidViewingPct[0].total : 0;
+if (seriesViewingPctErrors > 0) {
+  print("❌ Series.viewingPct no Int32: " + seriesViewingPctErrors);
+  totalErrors += seriesViewingPctErrors;
+  errors.push("Series.viewingPct");
+} else {
+  print("✓ Series.viewingPct Int32: 0 errores");
+}
+
+// Verificar campos numéricos en Series
+var seriesChecks = [
+  { field: "season", name: "Series.season" },
+  { field: "episode", name: "Series.episode" },
+  { field: "avgDuration", name: "Series.avgDuration" },
+  { field: "totalEpisodes", name: "Series.totalEpisodes" },
+  { field: "totalSeasons", name: "Series.totalSeasons" }
+];
+
+seriesChecks.forEach(function(check) {
+  var fieldPath = "Series." + check.field;
+  var matchCondition = {};
+  matchCondition[fieldPath] = { $not: { $type: "int" } };
+  
+  var result = db.invoices.aggregate([
+    { $match: { Series: { $exists: true, $ne: [] } } },
+    { $unwind: "$Series" },
+    { $match: matchCondition },
+    { $count: "total" }
+  ]).toArray();
+  
+  var count = result.length > 0 ? result[0].total : 0;
+  if (count > 0) {
+    print("❌ " + check.name + " no Int32: " + count);
+    totalErrors += count;
+    errors.push(check.name);
+  } else {
+    print("✓ " + check.name + " Int32: 0 errores");
+  }
+});
+
+// Verificar fechas en Series
+var seriesWithStringDate = db.invoices.aggregate([
+  { $match: { Series: { $exists: true, $ne: [] } } },
+  { $unwind: "$Series" },
+  { $match: { "Series.date": { $type: "string" } } },
+  { $count: "total" }
+]).toArray();
+
+var seriesDateErrors = seriesWithStringDate.length > 0 ? seriesWithStringDate[0].total : 0;
+if (seriesDateErrors > 0) {
+  print("❌ Series.date como string: " + seriesDateErrors);
+  totalErrors += seriesDateErrors;
+  errors.push("Series.date");
+} else {
+  print("✓ Series.date ISODate: 0 errores");
+}
+
+// ====================
+// RESUMEN FINAL
+// ====================
+
+print("\n" + "=".repeat(80));
+
+if (totalErrors === 0) {
+  print("✅ ✅ ✅  LIMPIEZA COMPLETADA EXITOSAMENTE - SIN ERRORES  ✅ ✅ ✅");
+} else {
+  print("⚠️  LIMPIEZA COMPLETADA CON " + totalErrors + " ERRORES");
+  print("\nCampos con problemas:");
+  errors.forEach(function(error) {
+    print("  • " + error);
+  });
+}
+
+print("=".repeat(80));
+
+print("\nESTADÍSTICAS:");
+print("  • Total documentos: " + totalDocs);
+print("  • Con Movies: " + db.invoices.countDocuments({ Movies: { $exists: true, $ne: [] } }));
+print("  • Con Series: " + db.invoices.countDocuments({ Series: { $exists: true, $ne: [] } }));
+
+// ====================
+// VERIFICACIÓN DE TIPOS
+// ====================
+
+print("\n" + "=".repeat(80));
+print("VERIFICACIÓN DE TIPOS DE DATOS (MUESTRA)");
+print("=".repeat(80) + "\n");
+
+var sample = db.invoices.findOne({ Movies: { $exists: true, $ne: [] }, Series: { $exists: true, $ne: [] } });
+
+if (sample) {
+  print("Tipos de datos encontrados:\n");
+  print("✓ billing: " + typeof sample.billing + " (" + Object.prototype.toString.call(sample.billing) + ")");
+  print("✓ chargeDate: " + typeof sample.chargeDate + " (" + Object.prototype.toString.call(sample.chargeDate) + ")");
+  print("✓ total: " + typeof sample.total + " (" + sample.total.constructor.name + ")");
+  print("✓ Client.phone: " + typeof sample.Client.phone + " (" + sample.Client.phone.constructor.name + ")");
+  print("✓ Client.birthDate: " + typeof sample.Client.birthDate + " (" + Object.prototype.toString.call(sample.Client.birthDate) + ")");
+  print("✓ Client.age: " + typeof sample.Client.age);
+  
+  if (sample.Movies && sample.Movies.length > 0) {
+    print("\nMovies[0]:");
+    print("  ✓ date: " + typeof sample.Movies[0].date + " (" + Object.prototype.toString.call(sample.Movies[0].date) + ")");
+    print("  ✓ viewingPct: " + typeof sample.Movies[0].viewingPct);
+    print("  ✓ details.year: " + typeof sample.Movies[0].details.year);
+    print("  ✓ details.duration: " + typeof sample.Movies[0].details.duration);
+    print("  ✓ details.budget: " + typeof sample.Movies[0].details.budget + " (" + sample.Movies[0].details.budget.constructor.name + ")");
+    print("  ✓ details.gross: " + typeof sample.Movies[0].details.gross + " (" + sample.Movies[0].details.gross.constructor.name + ")");
+  }
+  
+  if (sample.Series && sample.Series.length > 0) {
+    print("\nSeries[0]:");
+    print("  ✓ date: " + typeof sample.Series[0].date + " (" + Object.prototype.toString.call(sample.Series[0].date) + ")");
+    print("  ✓ viewingPct: " + typeof sample.Series[0].viewingPct);
+    print("  ✓ season: " + typeof sample.Series[0].season);
+    print("  ✓ episode: " + typeof sample.Series[0].episode);
+    print("  ✓ avgDuration: " + typeof sample.Series[0].avgDuration);
+  }
+}
+
+print("\n" + "=".repeat(80));
+print("Validación completada: " + new Date().toISOString());
+print("=".repeat(80) + "\n");

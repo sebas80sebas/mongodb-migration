@@ -1,122 +1,377 @@
 // ============================================================================
-// LIMPIEZA DE DATOS - SISTEMA DE FACTURAS STREAMIT
+// LIMPIEZA DE DATOS - SISTEMA DE FACTURAS STREAMIT (VERSIÓN CORREGIDA V3)
 // Base de datos: streamit_db
 // Colección: invoices
 // ============================================================================
 
-// Conectar a la base de datos
-// use streamit_db;
+// IMPORTANTE: Este script debe ejecutarse en ORDEN SECUENCIAL
+// No ejecutar secciones individuales fuera de orden
+
+print("\n" + "=".repeat(80));
+print("INICIANDO LIMPIEZA DE DATOS - STREAMIT DB");
+print("=".repeat(80) + "\n");
 
 // ============================================================================
-// PARTE 1: NORMALIZACIÓN DE FECHAS
+// PASO 1: RENOMBRAR CAMPOS (SIN MODIFICAR DATOS)
 // ============================================================================
-// JUSTIFICACIÓN: Las fechas están en formatos heterogéneos (DD/MM/YY y Month YYYY)
-// que dificultan consultas y ordenamientos. Se normalizan a ISODate para aprovechar
-// las funcionalidades nativas de MongoDB.
 
-print("\n=== INICIANDO LIMPIEZA DE FECHAS ===\n");
+print("PASO 1: Renombrando campos a camelCase...\n");
 
-// 1.1 Convertir "charge date" de DD/MM/YY a ISODate
-// JUSTIFICACIÓN: Formato DD/MM/YY es ambiguo y no permite comparaciones directas.
-// Se asume que YY representa años 2000+
+// 1.1 Nivel raíz
 db.invoices.updateMany(
   {},
+  {
+    $rename: {
+      "TOTAL": "total",
+      "charge date": "chargeDate",
+      "dump date": "dumpDate"
+    }
+  }
+);
+print("✓ Campos de nivel raíz renombrados");
+
+// 1.2 Client
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "Client.customer code": "Client.customerCode",
+      "Client.DNI": "Client.dni",
+      "Client.Name": "Client.name",
+      "Client.Surname": "Client.surname",
+      "Client.Birth date": "Client.birthDate",
+      "Client.Phone": "Client.phone",
+      "Client.Email": "Client.email"
+    }
+  }
+);
+print("✓ Campos de Client renombrados");
+
+// 1.3 Contract
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "contract.contract ID": "contract.contractId",
+      "contract.start date": "contract.startDate",
+      "contract.end date": "contract.endDate",
+      "contract.ZIP": "contract.zip",
+      "contract.product.Reference": "contract.product.reference",
+      "contract.product.monthly fee": "contract.product.monthlyFee",
+      "contract.product.cost per content": "contract.product.costPerContent",
+      "contract.product.cost per minute": "contract.product.costPerMinute",
+      "contract.product.cost per day": "contract.product.costPerDay"
+    }
+  }
+);
+print("✓ Campos de contract renombrados");
+
+// 1.4 Movies (campos simples)
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
   [
     {
       $set: {
-        "charge date": {
-          $dateFromString: {
-            dateString: {
-              $concat: [
-                "20",
-                { $substr: ["$charge date", 6, 2] }, // año
-                "-",
-                { $substr: ["$charge date", 3, 2] }, // mes
-                "-",
-                { $substr: ["$charge date", 0, 2] }  // día
-              ]
-            },
-            format: "%Y-%m-%d",
-            onError: null // Si falla, dejar null para revisión manual
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              Date: "$$m.Date",
+              Time: "$$m.Time",
+              Title: "$$m.Title",
+              viewingPct: { $ifNull: ["$$m.Viewing PCT", 0] },
+              License: "$$m.License",
+              Details: "$$m.Details"
+            }
           }
         }
       }
     }
   ]
 );
+print("✓ Movies: campo 'Viewing PCT' renombrado a 'viewingPct'");
 
-print("✓ Campo 'charge date' normalizado a ISODate");
-
-// 1.2 Convertir "dump date" de DD/MM/YY a ISODate
+// 1.5 Series (campos simples)
 db.invoices.updateMany(
-  {},
+  { Series: { $exists: true, $ne: null } },
   [
     {
       $set: {
-        "dump date": {
-          $dateFromString: {
-            dateString: {
-              $concat: [
-                "20",
-                { $substr: ["$dump date", 6, 2] },
-                "-",
-                { $substr: ["$dump date", 3, 2] },
-                "-",
-                { $substr: ["$dump date", 0, 2] }
-              ]
-            },
-            format: "%Y-%m-%d",
-            onError: null
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              Date: "$$s.Date",
+              Time: "$$s.Time",
+              Title: "$$s.Title",
+              Season: "$$s.Season",
+              Episode: "$$s.Episode",
+              avgDuration: { $ifNull: ["$$s.Avg duration", 0] },
+              totalEpisodes: { $ifNull: ["$$s.Total Episodes", 0] },
+              totalSeasons: { $ifNull: ["$$s.Total Seasons", 0] },
+              viewingPct: { $ifNull: ["$$s.Viewing PCT", 0] },
+              License: "$$s.License"
+            }
           }
         }
       }
     }
   ]
 );
+print("✓ Series: campos renombrados a camelCase");
 
-print("✓ Campo 'dump date' normalizado a ISODate");
+// ============================================================================
+// PASO 2: CONVERTIR FECHAS A ISODate
+// ============================================================================
 
-// 1.3 Convertir "billing" de "Month YYYY" a ISODate
-// JUSTIFICACIÓN: Se establece el día 1 del mes para tener una fecha completa
+print("\nPASO 2: Convirtiendo fechas a ISODate...\n");
+
+// Función helper para convertir DD/MM/YY a ISODate (año > 25 = 19XX, <= 25 = 20XX)
+function createDateConversion(fieldPath) {
+  return {
+    $let: {
+      vars: {
+        dayStr: { $substr: [fieldPath, 0, 2] },
+        monthStr: { $substr: [fieldPath, 3, 2] },
+        yearStr: { $substr: [fieldPath, 6, 2] }
+      },
+      in: {
+        $dateFromString: {
+          dateString: {
+            $concat: [
+              { $cond: [{ $gt: [{ $toInt: "$$yearStr" }, 25] }, "19", "20"] },
+              "$$yearStr",
+              "-",
+              "$$monthStr",
+              "-",
+              "$$dayStr"
+            ]
+          },
+          format: "%Y-%m-%d",
+          onError: null
+        }
+      }
+    }
+  };
+}
+
+// 2.1 chargeDate (DD/MM/YY)
 db.invoices.updateMany(
-  {},
+  { chargeDate: { $type: "string" } },
+  [{ $set: { chargeDate: createDateConversion("$chargeDate") } }]
+);
+print("✓ chargeDate convertido a ISODate");
+
+// 2.2 dumpDate (DD/MM/YY)
+db.invoices.updateMany(
+  { dumpDate: { $type: "string" } },
+  [{ $set: { dumpDate: createDateConversion("$dumpDate") } }]
+);
+print("✓ dumpDate convertido a ISODate");
+
+// 2.3 billing ("Month YYYY" -> primer día del mes)
+db.invoices.updateMany(
+  { billing: { $type: "string" } },
   [
     {
       $set: {
         billing: {
-          $dateFromString: {
-            dateString: "$billing",
-            format: "%B %Y",
-            onError: null
+          $let: {
+            vars: {
+              parts: { $split: ["$billing", " "] },
+            },
+            in: {
+              $dateFromString: {
+                dateString: {
+                  $concat: [
+                    { $arrayElemAt: ["$$parts", 1] },
+                    "-",
+                    {
+                      $switch: {
+                        branches: [
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "January"] }, then: "01" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "February"] }, then: "02" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "March"] }, then: "03" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "April"] }, then: "04" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "May"] }, then: "05" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "June"] }, then: "06" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "July"] }, then: "07" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "August"] }, then: "08" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "September"] }, then: "09" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "October"] }, then: "10" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "November"] }, then: "11" },
+                          { case: { $eq: [{ $arrayElemAt: ["$$parts", 0] }, "December"] }, then: "12" }
+                        ],
+                        default: "01"
+                      }
+                    },
+                    "-01"
+                  ]
+                },
+                format: "%Y-%m-%d",
+                onError: null
+              }
+            }
           }
         }
       }
     }
   ]
 );
+print("✓ billing convertido a ISODate");
 
-print("✓ Campo 'billing' normalizado a ISODate");
-
-// 1.4 Convertir fechas en Client.Birth date
+// 2.4 Client.birthDate (DD/MM/YY)
 db.invoices.updateMany(
-  { "Client.Birth date": { $exists: true, $type: "string" } },
+  { "Client.birthDate": { $type: "string" } },
+  [{ $set: { "Client.birthDate": createDateConversion("$Client.birthDate") } }]
+);
+print("✓ Client.birthDate convertido a ISODate");
+
+// 2.5 contract.startDate (DD/MM/YY)
+db.invoices.updateMany(
+  { "contract.startDate": { $type: "string" } },
+  [{ $set: { "contract.startDate": createDateConversion("$contract.startDate") } }]
+);
+print("✓ contract.startDate convertido a ISODate");
+
+// 2.6 contract.endDate (DD/MM/YY) - si existe
+db.invoices.updateMany(
+  { "contract.endDate": { $type: "string" } },
+  [{ $set: { "contract.endDate": createDateConversion("$contract.endDate") } }]
+);
+print("✓ contract.endDate convertido a ISODate");
+
+// 2.7 Movies: Date y License.Date (robusto para DD/MM/YY o DD/MM/YYYY)
+
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
   [
     {
       $set: {
-        "Client.Birth date": {
-          $dateFromString: {
-            dateString: {
-              $concat: [
-                "20",
-                { $substr: ["$Client.Birth date", 6, 2] },
-                "-",
-                { $substr: ["$Client.Birth date", 3, 2] },
-                "-",
-                { $substr: ["$Client.Birth date", 0, 2] }
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              $mergeObjects: [
+                "$$m",
+                {
+                  date: {
+                    $cond: {
+                      if: { $and: [
+                        { $ne: ["$$m.Date", null] },
+                        { $ne: ["$$m.Date", ""] },
+                        { $gte: [{ $strLenCP: "$$m.Date" }, 8] }
+                      ]},
+                      then: {
+                        $let: {
+                          vars: {
+                            yearStr: {
+                              // Si tiene 10 caracteres (DD/MM/YYYY), toma 4; si no, toma 2
+                              $cond: [
+                                { $eq: [{ $strLenCP: "$$m.Date" }, 10] },
+                                { $substr: ["$$m.Date", 6, 4] },
+                                { $substr: ["$$m.Date", 6, 2] }
+                              ]
+                            }
+                          },
+                          in: {
+                            $dateFromString: {
+                              dateString: {
+                                $concat: [
+                                  // Maneja siglo (19XX o 20XX)
+                                  {
+                                    $cond: [
+                                      { $eq: [{ $strLenCP: "$$m.Date" }, 10] },
+                                      "", // si ya tiene año completo
+                                      {
+                                        $cond: [
+                                          { $gt: [{ $toInt: "$$yearStr" }, 25] },
+                                          "19",
+                                          "20"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "$$yearStr",
+                                  "-",
+                                  { $substr: ["$$m.Date", 3, 2] },
+                                  "-",
+                                  { $substr: ["$$m.Date", 0, 2] }
+                                ]
+                              },
+                              format: "%Y-%m-%d",
+                              onError: null
+                            }
+                          }
+                        }
+                      },
+                      else: null
+                    }
+                  },
+                  time: "$$m.Time",
+                  title: "$$m.Title",
+                  viewingPct: "$$m.viewingPct",
+                  license: {
+                    date: {
+                      $cond: {
+                        if: { $and: [
+                          { $ne: ["$$m.License.Date", null] },
+                          { $ne: ["$$m.License.Date", ""] },
+                          { $gte: [{ $strLenCP: { $ifNull: ["$$m.License.Date", ""] } }, 8] }
+                        ]},
+                        then: {
+                          $let: {
+                            vars: {
+                              yearStr: {
+                                $cond: [
+                                  { $eq: [{ $strLenCP: "$$m.License.Date" }, 10] },
+                                  { $substr: ["$$m.License.Date", 6, 4] },
+                                  { $substr: ["$$m.License.Date", 6, 2] }
+                                ]
+                              }
+                            },
+                            in: {
+                              $dateFromString: {
+                                dateString: {
+                                  $concat: [
+                                    {
+                                      $cond: [
+                                        { $eq: [{ $strLenCP: "$$m.License.Date" }, 10] },
+                                        "",
+                                        {
+                                          $cond: [
+                                            { $gt: [{ $toInt: "$$yearStr" }, 25] },
+                                            "19",
+                                            "20"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "$$yearStr",
+                                    "-",
+                                    { $substr: ["$$m.License.Date", 3, 2] },
+                                    "-",
+                                    { $substr: ["$$m.License.Date", 0, 2] }
+                                  ]
+                                },
+                                format: "%Y-%m-%d",
+                                onError: null
+                              }
+                            }
+                          }
+                        },
+                        else: null
+                      }
+                    },
+                    time: { $ifNull: ["$$m.License.Time", ""] }
+                  },
+                  Details: "$$m.Details"
+                }
               ]
-            },
-            format: "%Y-%m-%d",
-            onError: null
+            }
           }
         }
       }
@@ -124,54 +379,163 @@ db.invoices.updateMany(
   ]
 );
 
-print("✓ Campo 'Client.Birth date' normalizado a ISODate");
-
-// 1.5 Convertir fechas en contract (start date y end date)
+// Eliminar campos Date antiguos en Movies
 db.invoices.updateMany(
-  { "contract.start date": { $exists: true, $type: "string" } },
+  { Movies: { $exists: true } },
   [
     {
       $set: {
-        "contract.start date": {
-          $dateFromString: {
-            dateString: {
-              $concat: [
-                "20",
-                { $substr: ["$contract.start date", 6, 2] },
-                "-",
-                { $substr: ["$contract.start date", 3, 2] },
-                "-",
-                { $substr: ["$contract.start date", 0, 2] }
-              ]
-            },
-            format: "%Y-%m-%d",
-            onError: null
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              date: "$$m.date",
+              time: "$$m.time",
+              title: "$$m.title",
+              viewingPct: "$$m.viewingPct",
+              license: "$$m.license",
+              Details: "$$m.Details"
+            }
           }
         }
       }
     }
   ]
 );
+print("✓ Movies: fechas convertidas a ISODate");
+
+// 2.8 Series: Date y License.Date (robusto para DD/MM/YY o DD/MM/YYYY)
 
 db.invoices.updateMany(
-  { "contract.end date": { $exists: true, $type: "string" } },
+  { Series: { $exists: true, $ne: null } },
   [
     {
       $set: {
-        "contract.end date": {
-          $dateFromString: {
-            dateString: {
-              $concat: [
-                "20",
-                { $substr: ["$contract.end date", 6, 2] },
-                "-",
-                { $substr: ["$contract.end date", 3, 2] },
-                "-",
-                { $substr: ["$contract.end date", 0, 2] }
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              $mergeObjects: [
+                "$$s",
+                {
+                  date: {
+                    $cond: {
+                      if: { $and: [
+                        { $ne: ["$$s.Date", null] },
+                        { $ne: ["$$s.Date", ""] },
+                        { $gte: [{ $strLenCP: "$$s.Date" }, 8] }
+                      ]},
+                      then: {
+                        $let: {
+                          vars: {
+                            yearStr: {
+                              $cond: [
+                                { $eq: [{ $strLenCP: "$$s.Date" }, 10] },
+                                { $substr: ["$$s.Date", 6, 4] },
+                                { $substr: ["$$s.Date", 6, 2] }
+                              ]
+                            }
+                          },
+                          in: {
+                            $dateFromString: {
+                              dateString: {
+                                $concat: [
+                                  {
+                                    $cond: [
+                                      { $eq: [{ $strLenCP: "$$s.Date" }, 10] },
+                                      "",
+                                      {
+                                        $cond: [
+                                          { $gt: [{ $toInt: "$$yearStr" }, 25] },
+                                          "19",
+                                          "20"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "$$yearStr",
+                                  "-",
+                                  { $substr: ["$$s.Date", 3, 2] },
+                                  "-",
+                                  { $substr: ["$$s.Date", 0, 2] }
+                                ]
+                              },
+                              format: "%Y-%m-%d",
+                              onError: null
+                            }
+                          }
+                        }
+                      },
+                      else: null
+                    }
+                  },
+                  time: "$$s.Time",
+                  title: "$$s.Title",
+                  season: "$$s.Season",
+                  episode: "$$s.Episode",
+                  avgDuration: "$$s.avgDuration",
+                  totalEpisodes: "$$s.totalEpisodes",
+                  totalSeasons: "$$s.totalSeasons",
+                  viewingPct: "$$s.viewingPct",
+                  license: {
+                    date: {
+                      $cond: {
+                        if: { $and: [
+                          { $ne: ["$$s.License.Date", null] },
+                          { $ne: ["$$s.License.Date", ""] },
+                          { $gte: [{ $strLenCP: { $ifNull: ["$$s.License.Date", ""] } }, 8] }
+                        ]},
+                        then: {
+                          $let: {
+                            vars: {
+                              yearStr: {
+                                $cond: [
+                                  { $eq: [{ $strLenCP: "$$s.License.Date" }, 10] },
+                                  { $substr: ["$$s.License.Date", 6, 4] },
+                                  { $substr: ["$$s.License.Date", 6, 2] }
+                                ]
+                              }
+                            },
+                            in: {
+                              $dateFromString: {
+                                dateString: {
+                                  $concat: [
+                                    {
+                                      $cond: [
+                                        { $eq: [{ $strLenCP: "$$s.License.Date" }, 10] },
+                                        "",
+                                        {
+                                          $cond: [
+                                            { $gt: [{ $toInt: "$$yearStr" }, 25] },
+                                            "19",
+                                            "20"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "$$yearStr",
+                                    "-",
+                                    { $substr: ["$$s.License.Date", 3, 2] },
+                                    "-",
+                                    { $substr: ["$$s.License.Date", 0, 2] }
+                                  ]
+                                },
+                                format: "%Y-%m-%d",
+                                onError: null
+                              }
+                            }
+                          }
+                        },
+                        else: null
+                      }
+                    },
+                    time: { $ifNull: ["$$s.License.Time", ""] }
+                  }
+                }
               ]
-            },
-            format: "%Y-%m-%d",
-            onError: null
+            }
           }
         }
       }
@@ -179,27 +543,52 @@ db.invoices.updateMany(
   ]
 );
 
-print("✓ Campos de fechas en 'contract' normalizados a ISODate");
+// Eliminar campos Date antiguos en Series
+db.invoices.updateMany(
+  { Series: { $exists: true } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              date: "$$s.date",
+              time: "$$s.time",
+              title: "$$s.title",
+              season: "$$s.season",
+              episode: "$$s.episode",
+              avgDuration: "$$s.avgDuration",
+              totalEpisodes: "$$s.totalEpisodes",
+              totalSeasons: "$$s.totalSeasons",
+              viewingPct: "$$s.viewingPct",
+              license: "$$s.license"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ Series: Date convertido a date");
 
 // ============================================================================
-// PARTE 2: CORRECCIÓN DE TIPOS DE DATOS MIXTOS
+// PASO 3: NORMALIZAR TIPOS DE DATOS
 // ============================================================================
-// JUSTIFICACIÓN: El campo Client.Surname tiene tipos mixtos (string y array).
-// Se normaliza todo a string para mantener consistencia en el modelo.
 
-print("\n=== CORRIGIENDO TIPOS DE DATOS MIXTOS ===\n");
+print("\nPASO 3: Normalizando tipos de datos...\n");
 
-// 2.1 Convertir Client.Surname de array a string
-// JUSTIFICACIÓN: Cuando Surname es un array, se concatenan los elementos con espacio.
-// Esto preserva toda la información del apellido compuesto.
+// 3.1 Convertir Client.surname de array a string (si es array)
 db.invoices.updateMany(
-  { "Client.Surname": { $type: "array" } },
+  { "Client.surname": { $type: "array" } },
   [
     {
       $set: {
-        "Client.Surname": {
+        "Client.surname": {
           $reduce: {
-            input: "$Client.Surname",
+            input: "$Client.surname",
             initialValue: "",
             in: {
               $concat: [
@@ -214,113 +603,20 @@ db.invoices.updateMany(
     }
   ]
 );
+print("✓ Client.surname convertido a string");
 
-print("✓ Campo 'Client.Surname' normalizado a tipo string");
-
-// 2.2 Normalizar el campo TOTAL a tipo numérico (float)
-// JUSTIFICACIÓN: El campo tiene tipos mixtos (int y float). Se convierte todo a float
-// para mantener precisión decimal en operaciones financieras.
-db.invoices.updateMany(
-  { TOTAL: { $exists: true, $type: "int" } },
-  [
-    {
-      $set: {
-        TOTAL: { $toDouble: "$TOTAL" }
-      }
-    }
-  ]
-);
-
-print("✓ Campo 'TOTAL' normalizado a tipo float");
-
-// ============================================================================
-// PARTE 3: NORMALIZACIÓN DE NOMBRES DE CAMPOS
-// ============================================================================
-// JUSTIFICACIÓN: Los nombres de campos tienen inconsistencias (espacios, mayúsculas).
-// Se estandariza a camelCase para seguir convenciones de MongoDB.
-
-print("\n=== NORMALIZANDO NOMBRES DE CAMPOS ===\n");
-
-// 3.1 Renombrar campos de nivel superior con espacios
-db.invoices.updateMany(
-  {},
-  {
-    $rename: {
-      "charge date": "chargeDate",
-      "dump date": "dumpDate",
-      "TOTAL": "total"
-    }
-  }
-);
-
-print("✓ Campos de nivel superior renombrados a camelCase");
-
-// 3.2 Renombrar campos en Client
-db.invoices.updateMany(
-  {},
-  {
-    $rename: {
-      "Client.Birth date": "Client.birthDate",
-      "Client.DNI": "Client.dni",
-      "Client.Email": "Client.email",
-      "Client.Name": "Client.name",
-      "Client.Phone": "Client.phone",
-      "Client.Surname": "Client.surname",
-      "Client.customer code": "Client.customerCode"
-    }
-  }
-);
-
-print("✓ Campos en 'Client' renombrados a camelCase");
-
-// 3.3 Renombrar campos en contract
-db.invoices.updateMany(
-  {},
-  {
-    $rename: {
-      "contract.ZIP": "contract.zip",
-      "contract.contract ID": "contract.contractId",
-      "contract.start date": "contract.startDate",
-      "contract.end date": "contract.endDate"
-    }
-  }
-);
-
-print("✓ Campos en 'contract' renombrados a camelCase");
-
-// 3.4 Renombrar campos en contract.product
-db.invoices.updateMany(
-  {},
-  {
-    $rename: {
-      "contract.product.Reference": "contract.product.reference",
-      "contract.product.cost per content": "contract.product.costPerContent",
-      "contract.product.cost per day": "contract.product.costPerDay",
-      "contract.product.cost per minute": "contract.product.costPerMinute",
-      "contract.product.monthly fee": "contract.product.monthlyFee"
-    }
-  }
-);
-
-print("✓ Campos en 'contract.product' renombrados a camelCase");
-
-// 3.5 Renombrar campos en Movies
+// 3.2 Convertir Client.phone a Int64 (Long)
 db.invoices.updateMany(
   {},
   [
     {
       $set: {
-        Movies: {
-          $map: {
-            input: { $ifNull: ["$Movies", []] },
-            as: "movie",
-            in: {
-              date: "$$movie.Date",
-              details: "$$movie.Details",
-              license: "$$movie.License",
-              time: "$$movie.Time",
-              title: "$$movie.Title",
-              viewingPct: "$$movie.Viewing PCT"
+        "Client.phone": {
+          $toLong: {
+            $cond: {
+              if: { $eq: [{ $type: "$Client.phone" }, "string"] },
+              then: { $toInt: "$Client.phone" },
+              else: { $ifNull: ["$Client.phone", 0] }
             }
           }
         }
@@ -328,115 +624,38 @@ db.invoices.updateMany(
     }
   ]
 );
+print("✓ Client.phone convertido a Int64");
 
-print("✓ Campos en 'Movies' renombrados a camelCase");
-
-// 3.6 Renombrar campos en Series
+// 3.3 Convertir total a Decimal128
 db.invoices.updateMany(
   {},
   [
     {
       $set: {
-        Series: {
-          $map: {
-            input: { $ifNull: ["$Series", []] },
-            as: "serie",
-            in: {
-              avgDuration: "$$serie.Avg duration",
-              date: "$$serie.Date",
-              episode: "$$serie.Episode",
-              license: "$$serie.License",
-              season: "$$serie.Season",
-              time: "$$serie.Time",
-              title: "$$serie.Title",
-              totalEpisodes: "$$serie.Total Episodes",
-              totalSeasons: "$$serie.Total Seasons",
-              viewingPct: "$$serie.Viewing PCT"
-            }
-          }
-        }
+        total: { $toDecimal: { $ifNull: ["$total", "0"] } }
       }
     }
   ]
 );
+print("✓ total convertido a Decimal128");
 
-print("✓ Campos en 'Series' renombrados a camelCase");
-
-// ============================================================================
-// PARTE 4: LIMPIEZA Y NORMALIZACIÓN DE STRINGS
-// ============================================================================
-// JUSTIFICACIÓN: Los strings pueden tener espacios innecesarios o inconsistencias
-// que afectan búsquedas y agregaciones.
-
-print("\n=== LIMPIANDO Y NORMALIZANDO STRINGS ===\n");
-
-// 4.1 Limpiar espacios en campos de texto de Client
+// 3.4 Convertir campos monetarios en contract.product a Decimal128
 db.invoices.updateMany(
   {},
   [
     {
       $set: {
-        "Client.name": { $trim: { input: { $ifNull: ["$Client.name", ""] } } },
-        "Client.surname": { $trim: { input: { $ifNull: ["$Client.surname", ""] } } },
-        "Client.email": { $toLower: { $trim: { input: { $ifNull: ["$Client.email", ""] } } } },
-        "Client.dni": { $trim: { input: { $ifNull: ["$Client.dni", ""] } } }
+        "contract.product.monthlyFee": { $toDecimal: { $ifNull: ["$contract.product.monthlyFee", "0"] } },
+        "contract.product.costPerContent": { $toDecimal: { $ifNull: ["$contract.product.costPerContent", "0"] } },
+        "contract.product.costPerMinute": { $toDecimal: { $ifNull: ["$contract.product.costPerMinute", "0"] } },
+        "contract.product.costPerDay": { $toDecimal: { $ifNull: ["$contract.product.costPerDay", "0"] } }
       }
     }
   ]
 );
+print("✓ Campos monetarios de contract.product convertidos a Decimal128");
 
-print("✓ Campos de texto en 'Client' limpiados (trim y lowercase en email)");
-
-// 4.2 Limpiar espacios en campos de contract
-db.invoices.updateMany(
-  {},
-  [
-    {
-      $set: {
-        "contract.address": { $trim: { input: { $ifNull: ["$contract.address", ""] } } },
-        "contract.town": { $trim: { input: { $ifNull: ["$contract.town", ""] } } },
-        "contract.country": { $trim: { input: { $ifNull: ["$contract.country", ""] } } }
-      }
-    }
-  ]
-);
-
-print("✓ Campos de texto en 'contract' limpiados");
-
-// ============================================================================
-// PARTE 5: CONVERSIÓN DE CAMPOS NUMÉRICOS
-// ============================================================================
-// JUSTIFICACIÓN: Campos que deben ser numéricos pero están como strings
-// necesitan convertirse para permitir operaciones matemáticas.
-
-print("\n=== CONVIRTIENDO CAMPOS NUMÉRICOS ===\n");
-
-// 5.1 Convertir campos numéricos en contract.product
-db.invoices.updateMany(
-  {},
-  [
-    {
-      $set: {
-        "contract.product.costPerContent": {
-          $toDouble: { $ifNull: ["$contract.product.costPerContent", 0] }
-        },
-        "contract.product.costPerDay": {
-          $toDouble: { $ifNull: ["$contract.product.costPerDay", 0] }
-        },
-        "contract.product.costPerMinute": {
-          $toDouble: { $ifNull: ["$contract.product.costPerMinute", 0] }
-        },
-        "contract.product.monthlyFee": {
-          $toDouble: { $ifNull: ["$contract.product.monthlyFee", 0] }
-        }
-      }
-    }
-  ]
-);
-
-print("✓ Campos numéricos en 'contract.product' convertidos a double");
-
-// 5.2 Convertir viewing PCT a número decimal (0-1)
+// 3.5 Convertir viewingPct a Int32 en Movies
 db.invoices.updateMany(
   { Movies: { $exists: true, $ne: null } },
   [
@@ -445,31 +664,12 @@ db.invoices.updateMany(
         Movies: {
           $map: {
             input: "$Movies",
-            as: "movie",
+            as: "m",
             in: {
               $mergeObjects: [
-                "$$movie",
+                "$$m",
                 {
-                  viewingPct: {
-                    $cond: {
-                      if: { $eq: [{ $type: "$$movie.viewingPct" }, "string"] },
-                      then: {
-                        $divide: [
-                          {
-                            $toDouble: {
-                              $replaceAll: {
-                                input: "$$movie.viewingPct",
-                                find: "%",
-                                replacement: ""
-                              }
-                            }
-                          },
-                          100
-                        ]
-                      },
-                      else: "$$movie.viewingPct"
-                    }
-                  }
+                  viewingPct: { $toInt: { $ifNull: ["$$m.viewingPct", 0] } }
                 }
               ]
             }
@@ -479,7 +679,9 @@ db.invoices.updateMany(
     }
   ]
 );
+print("✓ Movies.viewingPct convertido a Int32");
 
+// 3.6 Convertir viewingPct a Int32 en Series
 db.invoices.updateMany(
   { Series: { $exists: true, $ne: null } },
   [
@@ -488,31 +690,12 @@ db.invoices.updateMany(
         Series: {
           $map: {
             input: "$Series",
-            as: "serie",
+            as: "s",
             in: {
               $mergeObjects: [
-                "$$serie",
+                "$$s",
                 {
-                  viewingPct: {
-                    $cond: {
-                      if: { $eq: [{ $type: "$$serie.viewingPct" }, "string"] },
-                      then: {
-                        $divide: [
-                          {
-                            $toDouble: {
-                              $replaceAll: {
-                                input: "$$serie.viewingPct",
-                                find: "%",
-                                replacement: ""
-                              }
-                            }
-                          },
-                          100
-                        ]
-                      },
-                      else: "$$serie.viewingPct"
-                    }
-                  }
+                  viewingPct: { $toInt: { $ifNull: ["$$s.viewingPct", 0] } }
                 }
               ]
             }
@@ -522,37 +705,157 @@ db.invoices.updateMany(
     }
   ]
 );
+print("✓ Series.viewingPct convertido a Int32");
 
-print("✓ Campos 'viewingPct' convertidos a decimal (0-1)");
-
-// ============================================================================
-// PARTE 6: AGREGAR CAMPOS CALCULADOS Y METADATOS
-// ============================================================================
-// JUSTIFICACIÓN: Se agregan campos útiles para análisis y auditoría.
-
-print("\n=== AGREGANDO CAMPOS CALCULADOS ===\n");
-
-// 6.1 Agregar campo de edad del cliente (calculada desde birthDate)
+// 3.7 Convertir campos numéricos en Series a Int32
 db.invoices.updateMany(
-  { "Client.birthDate": { $exists: true, $ne: null } },
+  { Series: { $exists: true, $ne: null } },
   [
     {
       $set: {
-        "Client.age": {
-          $dateDiff: {
-            startDate: "$Client.birthDate",
-            endDate: new Date(),
-            unit: "year"
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              $mergeObjects: [
+                "$$s",
+                {
+                  season: { $toInt: { $ifNull: ["$$s.season", 0] } },
+                  episode: { $toInt: { $ifNull: ["$$s.episode", 0] } },
+                  avgDuration: { $toInt: { $ifNull: ["$$s.avgDuration", 0] } },
+                  totalEpisodes: { $toInt: { $ifNull: ["$$s.totalEpisodes", 0] } },
+                  totalSeasons: { $toInt: { $ifNull: ["$$s.totalSeasons", 0] } }
+                }
+              ]
+            }
           }
         }
       }
     }
   ]
 );
+print("✓ Campos numéricos de Series convertidos a Int32");
 
-print("✓ Campo 'Client.age' calculado y agregado");
+// ============================================================================
+// PASO 4: REESTRUCTURAR MOVIES.DETAILS
+// ============================================================================
 
-// 6.2 Agregar contador de contenido consumido
+print("\nPASO 4: Reestructurando Movies.Details...\n");
+
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              date: "$$m.date",
+              time: "$$m.time",
+              title: "$$m.title",
+              viewingPct: "$$m.viewingPct",
+              license: "$$m.license",
+              details: {
+                year: { $toInt: { $ifNull: ["$$m.Details.Year", 0] } },
+                country: { $ifNull: ["$$m.Details.Country", ""] },
+                color: { $ifNull: ["$$m.Details.Color", ""] },
+                aspectRatio: { $ifNull: ["$$m.Details.Aspect ratio", 0] },
+                contentRating: { $ifNull: ["$$m.Details.Content Rating", ""] },
+                budget: { $toDecimal: { $ifNull: [{ $toString: "$$m.Details.Budget" }, "0"] } },
+                gross: { $toDecimal: { $ifNull: [{ $toString: "$$m.Details.Gross" }, "0"] } },
+                language: { $ifNull: ["$$m.Details.Language", ""] },
+                duration: { $toInt: { $ifNull: ["$$m.Details.Duration", 0] } },
+                imdbScore: { $ifNull: ["$$m.Details.IMDB score", 0] },
+                imdbLink: { $ifNull: ["$$m.Details.IMDB link", ""] },
+                criticReviews: { $toInt: { $ifNull: ["$$m.Details.Critic reviews", 0] } },
+                userReviews: { $toInt: { $ifNull: ["$$m.Details.User reviews", 0] } },
+                votedUsers: { $toInt: { $ifNull: ["$$m.Details.Voted users", 0] } },
+                facebookLikes: { $toInt: { $ifNull: ["$$m.Details.Facebook likes", 0] } },
+                facesInPoster: { $toInt: { $ifNull: ["$$m.Details.Faces in poster", 0] } },
+                genres: { $ifNull: ["$$m.Details.Genres", []] },
+                keywords: { $ifNull: ["$$m.Details.Keywords", []] },
+                director: {
+                  name: { $ifNull: ["$$m.Details.Director.Name", ""] },
+                  facebookLikes: { $toInt: { $ifNull: ["$$m.Details.Director.Facebook likes", 0] } }
+                },
+                cast: {
+                  facebookLikes: { $toInt: { $ifNull: ["$$m.Details.Cast.Facebook likes", 0] } },
+                  stars: {
+                    $map: {
+                      input: { $ifNull: ["$$m.Details.Cast.Stars", []] },
+                      as: "star",
+                      in: {
+                        player: { $ifNull: ["$$star.Player", ""] },
+                        facebookLikes: { $toInt: { $ifNull: ["$$star.Facebook likes", 0] } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Movies.Details reestructurado a Movies.details (camelCase)");
+
+// ============================================================================
+// PASO 5: LIMPIEZA DE STRINGS
+// ============================================================================
+
+print("\nPASO 5: Limpiando y normalizando strings...\n");
+
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "Client.name": { $trim: { input: { $ifNull: ["$Client.name", ""] } } },
+        "Client.surname": { $trim: { input: { $ifNull: ["$Client.surname", ""] } } },
+        "Client.email": { $toLower: { $trim: { input: { $ifNull: ["$Client.email", ""] } } } },
+        "Client.dni": { $toUpper: { $trim: { input: { $ifNull: ["$Client.dni", ""] } } } },
+        "contract.address": { $trim: { input: { $ifNull: ["$contract.address", ""] } } },
+        "contract.town": { $trim: { input: { $ifNull: ["$contract.town", ""] } } },
+        "contract.country": { $trim: { input: { $ifNull: ["$contract.country", ""] } } }
+      }
+    }
+  ]
+);
+print("✓ Strings de Client y contract limpiados");
+
+// ============================================================================
+// PASO 6: AGREGAR CAMPOS CALCULADOS
+// ============================================================================
+
+print("\nPASO 6: Agregando campos calculados...\n");
+
+// 6.1 Client.age
+db.invoices.updateMany(
+  { "Client.birthDate": { $exists: true, $ne: null, $type: "date" } },
+  [
+    {
+      $set: {
+        "Client.age": {
+          $toInt: {
+            $dateDiff: {
+              startDate: "$Client.birthDate",
+              endDate: new Date(),
+              unit: "year"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Client.age calculado");
+
+// 6.2 contentStats
 db.invoices.updateMany(
   {},
   [
@@ -572,126 +875,153 @@ db.invoices.updateMany(
     }
   ]
 );
+print("✓ contentStats agregado");
 
-print("✓ Campo 'contentStats' agregado con estadísticas de contenido");
-
-// 6.3 Agregar metadatos de limpieza
+// 6.3 Metadatos
 db.invoices.updateMany(
   {},
   {
     $set: {
       "_metadata.cleanedAt": new Date(),
-      "_metadata.version": "1.0"
+      "_metadata.version": "3.0"
     }
   }
 );
-
-print("✓ Metadatos de limpieza agregados");
+print("✓ Metadatos agregados");
 
 // ============================================================================
-// PARTE 7: VALIDACIÓN Y CREACIÓN DE ÍNDICES
+// PASO 7: CREAR ÍNDICES
 // ============================================================================
-// JUSTIFICACIÓN: Los índices mejoran el rendimiento de consultas frecuentes.
 
-print("\n=== CREANDO ÍNDICES ===\n");
+print("\nPASO 7: Creando índices...\n");
 
-// 7.1 Índice en _id (ya existe por defecto, pero lo documentamos)
-// JUSTIFICACIÓN: _id es el identificador único de cada factura
-
-// 7.2 Índice en Client.customerCode
 db.invoices.createIndex({ "Client.customerCode": 1 });
-print("✓ Índice creado en 'Client.customerCode'");
-
-// 7.3 Índice en contract.contractId
-db.invoices.createIndex({ "contract.contractId": 1 });
-print("✓ Índice creado en 'contract.contractId'");
-
-// 7.4 Índice en chargeDate para consultas temporales
-db.invoices.createIndex({ "chargeDate": 1 });
-print("✓ Índice creado en 'chargeDate'");
-
-// 7.5 Índice en billing para agrupaciones por período
-db.invoices.createIndex({ "billing": 1 });
-print("✓ Índice creado en 'billing'");
-
-// 7.6 Índice compuesto para consultas por cliente y fecha
-db.invoices.createIndex({ "Client.customerCode": 1, "chargeDate": 1 });
-print("✓ Índice compuesto creado en 'Client.customerCode' y 'chargeDate'");
-
-// 7.7 Índice en Client.email para búsquedas
 db.invoices.createIndex({ "Client.email": 1 });
-print("✓ Índice creado en 'Client.email'");
+db.invoices.createIndex({ "Client.dni": 1 });
+db.invoices.createIndex({ "contract.contractId": 1 });
+db.invoices.createIndex({ "chargeDate": 1 });
+db.invoices.createIndex({ "billing": 1 });
+db.invoices.createIndex({ "Client.customerCode": 1, "chargeDate": 1 });
+
+print("✓ Índices creados");
 
 // ============================================================================
-// PARTE 8: VALIDACIÓN FINAL
+// PASO 8: VALIDACIONES FINALES
 // ============================================================================
 
-print("\n=== EJECUTANDO VALIDACIONES FINALES ===\n");
+print("\n" + "=".repeat(80));
+print("VALIDACIONES FINALES");
+print("=".repeat(80) + "\n");
 
-// 8.1 Verificar que no haya fechas nulas críticas
-var nullDates = db.invoices.countDocuments({
-  $or: [
-    { chargeDate: null },
-    { dumpDate: null },
-    { billing: null }
-  ]
+var checks = [
+  { name: "Fechas nulas críticas", query: { $or: [{ chargeDate: null }, { dumpDate: null }, { billing: null }] } },
+  { name: "total no Decimal128", query: { total: { $not: { $type: "decimal" } } } },
+  { name: "Surname en array", query: { "Client.surname": { $type: "array" } } },
+  { name: "Emails inválidos", query: { "Client.email": { $not: { $regex: /@/ } } } },
+  { name: "DNIs faltantes", query: { $or: [{ "Client.dni": "" }, { "Client.dni": null }] } },
+  { name: "Fechas nacimiento futuras", query: { "Client.birthDate": { $gt: new Date() } } },
+  { name: "Edades inválidas", query: { $or: [{ "Client.age": { $lt: 0 } }, { "Client.age": { $gt: 120 } }] } },
+  { name: "Campos monetarios no Decimal128", query: { $or: [
+    { "contract.product.monthlyFee": { $not: { $type: "decimal" } } },
+    { "contract.product.costPerContent": { $not: { $type: "decimal" } } },
+    { "contract.product.costPerDay": { $not: { $type: "decimal" } } },
+    { "contract.product.costPerMinute": { $not: { $type: "decimal" } } }
+  ]}},
+  { name: "viewingPct no Int32 en Movies", query: { "Movies.viewingPct": { $not: { $type: "int" } } } },
+  { name: "viewingPct no Int32 en Series", query: { "Series.viewingPct": { $not: { $type: "int" } } } },
+  { name: "Teléfonos no Int64", query: { "Client.phone": { $not: { $type: "long" } } } },
+  { name: "Movies: budget no Decimal128", query: { "Movies.details.budget": { $not: { $type: "decimal" } } } },
+  { name: "Movies: gross no Decimal128", query: { "Movies.details.gross": { $not: { $type: "decimal" } } } },
+  { name: "Movies: year no Int32", query: { "Movies.details.year": { $not: { $type: "int" } } } },
+  { name: "Movies: duration no Int32", query: { "Movies.details.duration": { $not: { $type: "int" } } } },
+  { name: "Movies: criticReviews no Int32", query: { "Movies.details.criticReviews": { $not: { $type: "int" } } } },
+  { name: "Movies: userReviews no Int32", query: { "Movies.details.userReviews": { $not: { $type: "int" } } } },
+  { name: "Movies: votedUsers no Int32", query: { "Movies.details.votedUsers": { $not: { $type: "int" } } } },
+  { name: "Movies: facebookLikes no Int32", query: { "Movies.details.facebookLikes": { $not: { $type: "int" } } } },
+  { name: "Movies: facesInPoster no Int32", query: { "Movies.details.facesInPoster": { $not: { $type: "int" } } } },
+  { name: "Series: season no Int32", query: { "Series.season": { $not: { $type: "int" } } } },
+  { name: "Series: episode no Int32", query: { "Series.episode": { $not: { $type: "int" } } } },
+  { name: "Series: avgDuration no Int32", query: { "Series.avgDuration": { $not: { $type: "int" } } } },
+  { name: "Series: totalEpisodes no Int32", query: { "Series.totalEpisodes": { $not: { $type: "int" } } } },
+  { name: "Series: totalSeasons no Int32", query: { "Series.totalSeasons": { $not: { $type: "int" } } } },
+  { name: "Movies con fechas string", query: { "Movies.date": { $type: "string" } } },
+  { name: "Series con fechas string", query: { "Series.date": { $type: "string" } } }
+];
+
+var totalErrors = 0;
+checks.forEach(function(check) {
+  var count = db.invoices.countDocuments(check.query);
+  if (count > 0) {
+    print("❌ " + check.name + ": " + count);
+    totalErrors += count;
+  } else {
+    print("✓ " + check.name + ": 0");
+  }
 });
-print("Documentos con fechas nulas críticas: " + nullDates);
 
-// 8.2 Verificar tipos de datos en TOTAL
-var invalidTotals = db.invoices.countDocuments({
-  total: { $not: { $type: "double" } }
-});
-print("Documentos con total no numérico: " + invalidTotals);
+print("\n" + "=".repeat(80));
 
-// 8.3 Verificar normalización de Surname
-var arraySurnames = db.invoices.countDocuments({
-  "Client.surname": { $type: "array" }
-});
-print("Documentos con Surname en array: " + arraySurnames);
+if (totalErrors === 0) {
+  print("✅ LIMPIEZA COMPLETADA EXITOSAMENTE - SIN ERRORES");
+} else {
+  print("⚠️  LIMPIEZA COMPLETADA CON ADVERTENCIAS");
+  print("Total de documentos con problemas: " + totalErrors);
+}
 
-// 8.4 Estadísticas finales
+print("=".repeat(80));
+
+// Estadísticas finales
 var totalDocs = db.invoices.countDocuments({});
-print("\n✅ LIMPIEZA COMPLETADA");
-print("Total de documentos en la colección: " + totalDocs);
-print("\n=== FIN DEL PROCESO DE LIMPIEZA ===\n");
+var docsWithMovies = db.invoices.countDocuments({ Movies: { $exists: true, $ne: [] } });
+var docsWithSeries = db.invoices.countDocuments({ Series: { $exists: true, $ne: [] } });
 
-// ============================================================================
-// RESUMEN DE OPERACIONES REALIZADAS
-// ============================================================================
-/*
-RESUMEN DE TRANSFORMACIONES:
+print("\nESTADÍSTICAS:");
+print("  • Total documentos: " + totalDocs);
+print("  • Con Movies: " + docsWithMovies);
+print("  • Con Series: " + docsWithSeries);
 
-1. NORMALIZACIÓN DE FECHAS (7 campos):
-   - chargeDate: DD/MM/YY → ISODate
-   - dumpDate: DD/MM/YY → ISODate
-   - billing: Month YYYY → ISODate
-   - Client.birthDate: DD/MM/YY → ISODate
-   - contract.startDate: DD/MM/YY → ISODate
-   - contract.endDate: DD/MM/YY → ISODate
+print("\nTIPOS DE DATOS APLICADOS:");
+print("  • Fechas: ISODate");
+print("  • Importes monetarios: Decimal128");
+print("  • Códigos e identificadores: String");
+print("  • Teléfonos: Int64 (Long)");
+print("  • Porcentajes (viewingPct): Int32 (0-100)");
+print("  • Duraciones y contadores: Int32");
 
-2. CORRECCIÓN DE TIPOS:
-   - Client.Surname: array → string (concatenación)
-   - total: int → double (precisión decimal)
-   - Campos numéricos en product: string → double
+print("\nVERSIÓN: 3.0 (CORREGIDA)");
+print("FECHA: " + new Date().toISOString());
+print("=".repeat(80) + "\n");
 
-3. NORMALIZACIÓN DE NOMBRES:
-   - 30+ campos renombrados de "Space Case" a camelCase
-   - Consistencia en toda la estructura del documento
-
-4. LIMPIEZA DE STRINGS:
-   - Trim en todos los campos de texto
-   - Email convertido a lowercase
-   - Eliminación de espacios innecesarios
-
-5. CAMPOS CALCULADOS:
-   - Client.age: calculado desde birthDate
-   - contentStats: estadísticas de consumo
-   - _metadata: información de auditoría
-
-6. ÍNDICES CREADOS:
-   - 7 índices para optimización de consultas
-   - Índices simples y compuestos
-
-TOTAL DE DOCUMENTOS PROCESADOS: 15,807
-*/
+// Mostrar un documento de muestra
+print("\nDOCUMENTO DE MUESTRA (después de la limpieza):");
+print("=".repeat(80));
+var sample = db.invoices.findOne({ Movies: { $exists: true, $ne: [] } });
+if (sample) {
+  printjson({
+    _id: sample._id,
+    billing: sample.billing,
+    total: sample.total,
+    chargeDate: sample.chargeDate,
+    Client: {
+      name: sample.Client.name,
+      surname: sample.Client.surname,
+      birthDate: sample.Client.birthDate,
+      age: sample.Client.age,
+      phone: sample.Client.phone,
+      email: sample.Client.email
+    },
+    Movies_sample: sample.Movies[0] ? {
+      date: sample.Movies[0].date,
+      title: sample.Movies[0].title,
+      viewingPct: sample.Movies[0].viewingPct,
+      details: {
+        year: sample.Movies[0].details.year,
+        budget: sample.Movies[0].details.budget,
+        duration: sample.Movies[0].details.duration
+      }
+    } : null,
+    contentStats: sample.contentStats,
+    _metadata: sample._metadata
+  });
+}
+print("=".repeat(80) + "\n");
