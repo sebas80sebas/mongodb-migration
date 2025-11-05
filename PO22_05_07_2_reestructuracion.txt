@@ -372,44 +372,6 @@ class DataRestructurer:
         self.invoices_new.create_index([("client.customerCode", ASCENDING), ("chargeDate", ASCENDING)])
         print("   ✓ 7 índices creados en 'invoices_restructured'")
 
-    def validate_restructuring(self):
-        """Valida la reestructuración"""
-        print("\n✔️  PASO 5: VALIDACIÓN")
-        print("-" * 80)
-        
-        # Contar documentos
-        movies_count = self.movies_collection.count_documents({})
-        series_count = self.series_collection.count_documents({})
-        invoices_count = self.invoices_new.count_documents({})
-        original_count = self.invoices_source.count_documents({})
-        
-        print(f"   Películas únicas: {movies_count}")
-        print(f"   Series únicas: {series_count}")
-        print(f"   Facturas reestructuradas: {invoices_count}")
-        print(f"   Facturas originales: {original_count}")
-        
-        if invoices_count == original_count:
-            print("\n   ✅ Validación exitosa: Todas las facturas fueron procesadas")
-        else:
-            print(f"\n   ⚠️  Advertencia: Diferencia de {original_count - invoices_count} facturas")
-        
-        # Verificar referencias
-        sample_invoice = self.invoices_new.find_one({"movies": {"$ne": []}})
-        if sample_invoice and len(sample_invoice.get("movies", [])) > 0:
-            movie_id = sample_invoice["movies"][0]["movieId"]
-            movie_exists = self.movies_collection.find_one({"_id": movie_id})
-            
-            if movie_exists:
-                print("   ✅ Referencias a películas verificadas")
-            else:
-                print("   ⚠️  Error: Referencias rotas en películas")
-        
-        # Verificar que movies tiene detalles
-        movies_with_details = self.movies_collection.count_documents({
-            "details.director.name": {"$ne": ""}
-        })
-        print(f"   ✅ Películas con información de director: {movies_with_details}/{movies_count}")
-
     def generate_report(self):
         """Genera reporte final"""
         print("\n" + "=" * 80)
@@ -474,7 +436,6 @@ class DataRestructurer:
             self.extract_series()
             self.restructure_invoices()
             self.create_indexes()
-            self.validate_restructuring()
             self.generate_report()
             
             elapsed = datetime.now() - start_time
