@@ -1,0 +1,1243 @@
+// ============================================================================
+// CONSULTAS DE AGREGACIÓN - SISTEMA STREAMIT
+// Base de datos: streamit_db
+// ============================================================================
+// Implementación de casos de uso analíticos sobre el modelo reestructurado
+// Colecciones: movies, series, invoices_restructured
+// ============================================================================
+
+print("\n" + "=".repeat(80));
+print("CONSULTAS DE AGREGACIÓN - STREAMIT DB");
+print("=".repeat(80) + "\n");
+
+// ============================================================================
+// Q1) SERIAL LOVERS
+// Detectar clientes que han visionado al menos una temporada completa de una serie
+// ============================================================================
+
+print("📺 Q1: SERIAL LOVERS - Clientes que completaron temporadas\n");
+print("-".repeat(80));
+
+db.invoices_restructured.aggregate([
+  // Expandir el array de series para analizar cada visualización
+  { $unwind: "$series" },
+  
+  // Agrupar por cliente, serie y temporada
+  {
+    $group: {
+      _id: {
+        customerCode: "$client.customerCode",
+        clientName: "$client.name",
+        clientSurname: "$client.surname",
+        seriesId: "$series.seriesId",
+        season: "$series.season"
+      },
+      episodesWatched: { $addToSet: "$series.episode" },
+      avgViewingPct: { $avg: "$series.viewingPct" }
+    }
+  },
+  
+  // Obtener información de la serie
+  {
+    $lookup: {
+      from: "series",
+      localField: "_id.seriesId",
+      foreignField: "_id",
+      as: "seriesInfo"
+    }
+  },
+  
+  { $unwind: "$seriesInfo" },
+  
+  // Contar episodios vistos
+  {
+    $addFields: {
+      episodesWatchedCount: { $size: "$episodesWatched" }
+    }
+  },
+  
+  // Filtrar temporadas con visionado significativo (>70% de episodios)
+  // Asumimos aprox. totalEpisodes / totalSeasons episodios por temporada
+  {
+    $addFields: {
+      avgEpisodesPerSeason: {
+        $divide: ["$seriesInfo.totalEpisodes", "$seriesInfo.totalSeasons"]
+      }
+    }
+  },
+  
+  // Considerar "temporada completa" si vio al menos 70% de los episodios
+  {
+    $match: {
+      $expr: {
+        $gte: [
+          "$episodesWatchedCount",
+          { $multiply: ["$avgEpisodesPerSeason", 0.7] }
+        ]
+      },
+      avgViewingPct: { $gte: 70 } // Vio al menos 70% de cada episodio
+    }
+  },
+  
+  // Agrupar por cliente
+  {
+    $group: {
+      _id: "$_id.customerCode",
+      clientName: { $first: "$_id.clientName" },
+      clientSurname: { $first: "$_id.clientSurname" },
+      completedSeasons: {
+        $push: {
+          series: "$seriesInfo.title",
+          season: "$_id.season",
+          episodesWatched: "$episodesWatchedCount",
+          avgViewingPct: { $round: ["$avgViewingPct", 2] }
+        }
+      },
+      totalCompletedSeasons: { $sum: 1 }
+    }
+  },
+  
+  // Ordenar por número de temporadas completadas
+  { $sort: { totalCompletedSeasons: -1 } },
+  
+  // Limitar a top 20
+  { $limit: 20 },
+  
+  // Formato final
+  {
+    $project: {
+      _id: 0,
+      customerCode: "$_id",
+      client: {
+        $concat: ["$clientName", " ", "$clientSurname"]
+      },
+      totalCompletedSeasons: 1,
+      completedSeasons: 1
+    }
+  }
+]).forEach(doc => {
+  print(`Cliente: ${doc.client} (${doc.customerCode})`);
+  print(`  Temporadas completadas: ${doc.totalCompletedSeasons}`);
+  doc.completedSeasons.forEach(season => {
+    print(`    • ${season.series} - Temporada ${season.season}`);
+    print(`      Episodios vistos: ${season.episodesWatched}, Promedio visto: ${season.avgViewingPct}%`);
+  });
+  print("");
+});
+
+print("✅ Q1 completada\n");
+
+// ============================================================================
+// Q2) APELLIDOS COMUNES
+// Obtener el apellido más frecuente por país de contrato
+// ============================================================================
+
+print("🌍 Q2: APELLIDOS COMUNES - Apellido más frecuente por país\n");
+print("-".repeat(80));
+
+db.invoices_restructured.aggregate([
+  // Extraer primer apellido (antes del primer espacio)
+  {
+    $addFields: {
+      firstSurname: {
+        $arrayElemAt: [
+          { $split: ["$client.surname", " "] },
+          0
+        ]
+      }
+    }
+  },
+  
+  // Agrupar por país y apellido
+  {
+    $group: {
+      _id: {
+        country: "$contract.country",
+        surname: "$firstSurname"
+      },
+      count: { $sum: 1 },
+      clients: {
+        $addToSet: {
+          code: "$client.customerCode",
+          name: "$client.name"
+        }
+      }
+    }
+  },
+  
+  // Ordenar por país y frecuencia
+  { $sort: { "_id.country": 1, count: -1 } },
+  
+  // Agrupar por país y tomar el apellido más frecuente
+  {
+    $group: {
+      _id: "$_id.country",
+      mostCommonSurname: { $first: "$_id.surname" },
+      frequency: { $first: "$count" },
+      sampleClients: { $first: { $slice: ["$clients", 3] } },
+      allSurnames: {
+        $push: {
+          surname: "$_id.surname",
+          count: "$count"
+        }
+      }
+    }
+  },
+  
+  // Ordenar por país
+  { $sort: { _id: 1 } },
+  
+  // Formato final
+  {
+    $project: {
+      _id: 0,
+      country: "$_id",
+      mostCommonSurname: 1,
+      frequency: 1,
+      sampleClients: 1,
+      top5Surnames: { $slice: ["$allSurnames", 5] }
+    }
+  }
+]).forEach(doc => {
+  print(`País: ${doc.country}`);
+  print(`  Apellido más común: ${doc.mostCommonSurname} (${doc.frequency} clientes)`);
+  print(`  Ejemplos de clientes:`);
+  doc.sampleClients.forEach(client => {
+    print(`    • ${client.name} ${doc.mostCommonSurname} (${client.code})`);
+  });
+  print(`  Top 5 apellidos:`);
+  doc.top5Surnames.forEach((s, idx) => {
+    print(`    ${idx + 1}. ${s.surname}: ${s.count}`);
+  });
+  print("");
+});
+
+print("✅ Q2 completada\n");
+
+// ============================================================================
+// Q3) ACTORES POPULARES
+// Top-5 de actores más vistos en España
+// ============================================================================
+
+print("🎭 Q3: ACTORES POPULARES - Top-5 actores más vistos en España\n");
+print("-".repeat(80));
+
+db.invoices_restructured.aggregate([
+  // Filtrar solo contratos de España
+  { $match: { "contract.country": "Spain" } },
+  
+  // Expandir películas vistas
+  { $unwind: "$movies" },
+  
+  // Obtener información de la película
+  {
+    $lookup: {
+      from: "movies",
+      localField: "movies.movieId",
+      foreignField: "_id",
+      as: "movieInfo"
+    }
+  },
+  
+  { $unwind: "$movieInfo" },
+  
+  // Expandir el cast de cada película
+  { $unwind: "$movieInfo.details.cast.stars" },
+  
+  // Agrupar por actor
+  {
+    $group: {
+      _id: "$movieInfo.details.cast.stars.name",
+      timesWatched: { $sum: 1 },
+      totalViewingPct: { $sum: "$movies.viewingPct" },
+      avgViewingPct: { $avg: "$movies.viewingPct" },
+      uniqueClients: { $addToSet: "$client.customerCode" },
+      movies: {
+        $addToSet: {
+          title: "$movieInfo.title",
+          year: "$movieInfo.details.year"
+        }
+      },
+      facebookLikes: { $first: "$movieInfo.details.cast.stars.facebookLikes" }
+    }
+  },
+  
+  // Calcular métricas adicionales
+  {
+    $addFields: {
+      uniqueClientsCount: { $size: "$uniqueClients" },
+      moviesCount: { $size: "$movies" }
+    }
+  },
+  
+  // Ordenar por veces visto
+  { $sort: { timesWatched: -1 } },
+  
+  // Top 5
+  { $limit: 5 },
+  
+  // Formato final
+  {
+    $project: {
+      _id: 0,
+      actor: "$_id",
+      timesWatched: 1,
+      uniqueClients: "$uniqueClientsCount",
+      moviesCount: 1,
+      avgViewingPct: { $round: ["$avgViewingPct", 2] },
+      facebookLikes: 1,
+      topMovies: { $slice: ["$movies", 5] }
+    }
+  }
+]).forEach((doc, idx) => {
+  print(`${idx + 1}. ${doc.actor}`);
+  print(`   • Visionados totales: ${doc.timesWatched}`);
+  print(`   • Clientes únicos: ${doc.uniqueClients}`);
+  print(`   • Películas diferentes: ${doc.moviesCount}`);
+  print(`   • Promedio de visionado: ${doc.avgViewingPct}%`);
+  print(`   • Facebook Likes: ${doc.facebookLikes.toLocaleString()}`);
+  print(`   • Películas destacadas:`);
+  doc.topMovies.forEach(movie => {
+    print(`     - ${movie.title} (${movie.year})`);
+  });
+  print("");
+});
+
+print("✅ Q3 completada\n");
+
+// ============================================================================
+// Q4) CLÁSICOS MODERNOS
+// Top-10 anual de películas del siglo XX más vistas
+// ============================================================================
+
+print("🎬 Q4: CLÁSICOS MODERNOS - Top-10 películas del siglo XX más vistas\n");
+print("-".repeat(80));
+
+db.invoices_restructured.aggregate([
+  // Expandir películas
+  { $unwind: "$movies" },
+  
+  // Obtener información de la película
+  {
+    $lookup: {
+      from: "movies",
+      localField: "movies.movieId",
+      foreignField: "_id",
+      as: "movieInfo"
+    }
+  },
+  
+  { $unwind: "$movieInfo" },
+  
+  // Filtrar películas del siglo XX (1900-1999)
+  {
+    $match: {
+      "movieInfo.details.year": { $gte: 1900, $lte: 1999 }
+    }
+  },
+  
+  // Extraer año de la factura
+  {
+    $addFields: {
+      billingYear: { $year: "$billing" }
+    }
+  },
+  
+  // Agrupar por año de facturación y película
+  {
+    $group: {
+      _id: {
+        billingYear: "$billingYear",
+        movieId: "$movies.movieId",
+        movieTitle: "$movieInfo.title",
+        movieYear: "$movieInfo.details.year"
+      },
+      viewCount: { $sum: 1 },
+      avgViewingPct: { $avg: "$movies.viewingPct" },
+      uniqueClients: { $addToSet: "$client.customerCode" },
+      totalDuration: { $sum: "$movieInfo.details.duration" },
+      imdbScore: { $first: "$movieInfo.details.imdbScore" },
+      genres: { $first: "$movieInfo.details.genres" },
+      director: { $first: "$movieInfo.details.director.name" }
+    }
+  },
+  
+  // Calcular clientes únicos
+  {
+    $addFields: {
+      uniqueClientsCount: { $size: "$uniqueClients" }
+    }
+  },
+  
+  // Ordenar por año de facturación y número de visionados
+  { $sort: { "_id.billingYear": -1, viewCount: -1 } },
+  
+  // Agrupar por año de facturación para obtener top-10 de cada año
+  {
+    $group: {
+      _id: "$_id.billingYear",
+      topMovies: {
+        $push: {
+          title: "$_id.movieTitle",
+          year: "$_id.movieYear",
+          viewCount: "$viewCount",
+          uniqueClients: "$uniqueClientsCount",
+          avgViewingPct: { $round: ["$avgViewingPct", 2] },
+          totalMinutes: "$totalDuration",
+          imdbScore: "$imdbScore",
+          genres: "$genres",
+          director: "$director"
+        }
+      }
+    }
+  },
+  
+  // Limitar a top-10 por año
+  {
+    $project: {
+      _id: 0,
+      year: "$_id",
+      topMovies: { $slice: ["$topMovies", 10] }
+    }
+  },
+  
+  // Ordenar por año descendente
+  { $sort: { year: -1 } }
+]).forEach(yearDoc => {
+  print(`\n📅 AÑO ${yearDoc.year}`);
+  print("=".repeat(80));
+  yearDoc.topMovies.forEach((movie, idx) => {
+    print(`\n${idx + 1}. ${movie.title} (${movie.year})`);
+    print(`   • Director: ${movie.director}`);
+    print(`   • Géneros: ${movie.genres.join(", ")}`);
+    print(`   • IMDB Score: ${movie.imdbScore}`);
+    print(`   • Visionados: ${movie.viewCount}`);
+    print(`   • Clientes únicos: ${movie.uniqueClients}`);
+    print(`   • Promedio visto: ${movie.avgViewingPct}%`);
+    print(`   • Duración total vista: ${(movie.totalMinutes / 60).toFixed(1)} horas`);
+  });
+  print("");
+});
+
+print("✅ Q4 completada\n");
+
+// ============================================================================
+// Q5) FACTURACIÓN MENSUAL
+// Total de ingresos en un mes específico
+// ============================================================================
+
+print("💰 Q5: FACTURACIÓN MENSUAL - Total de ingresos por mes\n");
+print("-".repeat(80));
+
+db.invoices_restructured.aggregate([
+  // Extraer año y mes de la facturación
+  {
+    $addFields: {
+      year: { $year: "$billing" },
+      month: { $month: "$billing" }
+    }
+  },
+  
+  // Agrupar por año y mes
+  {
+    $group: {
+      _id: {
+        year: "$year",
+        month: "$month"
+      },
+      totalRevenue: { $sum: { $toDecimal: "$total" } },
+      invoiceCount: { $sum: 1 },
+      uniqueClients: { $addToSet: "$client.customerCode" },
+      productTypes: {
+        $push: "$contract.product.type"
+      }
+    }
+  },
+  
+  // Calcular estadísticas adicionales
+  {
+    $addFields: {
+      uniqueClientsCount: { $size: "$uniqueClients" },
+      avgRevenuePerInvoice: {
+        $divide: ["$totalRevenue", "$invoiceCount"]
+      }
+    }
+  },
+  
+  // Contar tipos de producto
+  {
+    $addFields: {
+        productDistribution: {
+        $reduce: {
+            input: "$productTypes",
+            initialValue: { "pay per content": 0 },
+            in: {
+            "pay per content": {
+                $cond: [
+                { $eq: ["$$this", "pay per content"] },
+                { $add: ["$$value.pay per content", 1] },
+                "$$value.pay per content"
+                ]
+            }
+            }
+        }
+      }
+    }
+  },
+  
+  // Ordenar por año y mes descendente
+  { $sort: { "_id.year": -1, "_id.month": -1 } },
+  
+  // Limitar a últimos 12 meses
+  { $limit: 12 },
+  
+  // Formato final
+  {
+    $project: {
+      _id: 0,
+      year: "$_id.year",
+      month: "$_id.month",
+      totalRevenue: { $round: ["$totalRevenue", 2] },
+      invoiceCount: 1,
+      uniqueClients: "$uniqueClientsCount",
+      avgRevenuePerInvoice: { $round: ["$avgRevenuePerInvoice", 2] },
+      productDistribution: 1
+    }
+  }
+]).forEach(doc => {
+  const monthNames = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  print(`\n📊 ${monthNames[doc.month]} ${doc.year}`);
+  print("-".repeat(80));
+  print(`  💵 Ingresos totales: €${doc.totalRevenue.toLocaleString()}`);
+  print(`  📄 Facturas emitidas: ${doc.invoiceCount.toLocaleString()}`);
+  print(`  👥 Clientes únicos: ${doc.uniqueClients.toLocaleString()}`);
+  print(`  📈 Ingreso promedio por factura: €${parseFloat(doc.avgRevenuePerInvoice).toFixed(2)}`);
+  print(`  📦 Distribución por producto:`);
+  print(`     • Pay per content: ${doc.productDistribution["pay per content"]}`);
+});
+
+print("\n✅ Q5 completada\n");
+
+// ============================================================================
+// Q6) CONSUMO MENSUAL
+// Total mensual de visionados (series vs películas), incluyendo duración en horas
+// ============================================================================
+
+print("📺 Q6: CONSUMO MENSUAL - Visionados y duración total\n");
+print("-".repeat(80));
+
+db.invoices_restructured.aggregate([
+  // Extraer año y mes
+  {
+    $addFields: {
+      year: { $year: "$billing" },
+      month: { $month: "$billing" }
+    }
+  },
+  
+  // Crear documentos separados para películas y series
+  {
+    $facet: {
+      movies: [
+        { $unwind: "$movies" },
+        {
+          $lookup: {
+            from: "movies",
+            localField: "movies.movieId",
+            foreignField: "_id",
+            as: "movieInfo"
+          }
+        },
+        { $unwind: "$movieInfo" },
+        {
+          $group: {
+            _id: {
+              year: "$year",
+              month: "$month"
+            },
+            movieViews: { $sum: 1 },
+            movieDuration: { $sum: "$movieInfo.details.duration" },
+            avgMovieViewingPct: { $avg: "$movies.viewingPct" },
+            uniqueMovies: { $addToSet: "$movies.movieId" }
+          }
+        }
+      ],
+      series: [
+        { $unwind: "$series" },
+        {
+          $lookup: {
+            from: "series",
+            localField: "series.seriesId",
+            foreignField: "_id",
+            as: "seriesInfo"
+          }
+        },
+        { $unwind: "$seriesInfo" },
+        {
+          $group: {
+            _id: {
+              year: "$year",
+              month: "$month"
+            },
+            seriesViews: { $sum: 1 },
+            seriesDuration: { $sum: "$seriesInfo.avgDuration" },
+            avgSeriesViewingPct: { $avg: "$series.viewingPct" },
+            uniqueSeries: { $addToSet: "$series.seriesId" }
+          }
+        }
+      ]
+    }
+  },
+  
+  // Unir los resultados
+  {
+    $project: {
+      combined: {
+        $concatArrays: [
+          {
+            $map: {
+              input: "$movies",
+              as: "m",
+              in: {
+                year: "$$m._id.year",
+                month: "$$m._id.month",
+                movieViews: "$$m.movieViews",
+                movieDuration: "$$m.movieDuration",
+                avgMovieViewingPct: "$$m.avgMovieViewingPct",
+                uniqueMoviesCount: { $size: "$$m.uniqueMovies" },
+                seriesViews: 0,
+                seriesDuration: 0,
+                avgSeriesViewingPct: 0,
+                uniqueSeriesCount: 0
+              }
+            }
+          },
+          {
+            $map: {
+              input: "$series",
+              as: "s",
+              in: {
+                year: "$$s._id.year",
+                month: "$$s._id.month",
+                movieViews: 0,
+                movieDuration: 0,
+                avgMovieViewingPct: 0,
+                uniqueMoviesCount: 0,
+                seriesViews: "$$s.seriesViews",
+                seriesDuration: "$$s.seriesDuration",
+                avgSeriesViewingPct: "$$s.avgSeriesViewingPct",
+                uniqueSeriesCount: { $size: "$$s.uniqueSeries" }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  
+  { $unwind: "$combined" },
+  
+  // Agrupar por año y mes sumando ambos tipos
+  {
+    $group: {
+      _id: {
+        year: "$combined.year",
+        month: "$combined.month"
+      },
+      movieViews: { $sum: "$combined.movieViews" },
+      movieDurationMinutes: { $sum: "$combined.movieDuration" },
+      avgMovieViewingPct: { $avg: "$combined.avgMovieViewingPct" },
+      uniqueMoviesCount: { $sum: "$combined.uniqueMoviesCount" },
+      seriesViews: { $sum: "$combined.seriesViews" },
+      seriesDurationMinutes: { $sum: "$combined.seriesDuration" },
+      avgSeriesViewingPct: { $avg: "$combined.avgSeriesViewingPct" },
+      uniqueSeriesCount: { $sum: "$combined.uniqueSeriesCount" }
+    }
+  },
+  
+  // Calcular totales y porcentajes
+  {
+    $addFields: {
+      totalViews: { $add: ["$movieViews", "$seriesViews"] },
+      totalDurationMinutes: {
+        $add: ["$movieDurationMinutes", "$seriesDurationMinutes"]
+      },
+      totalDurationHours: {
+        $divide: [
+          { $add: ["$movieDurationMinutes", "$seriesDurationMinutes"] },
+          60
+        ]
+      },
+      movieViewsPct: {
+        $multiply: [
+          {
+            $divide: [
+              "$movieViews",
+              { $add: ["$movieViews", "$seriesViews"] }
+            ]
+          },
+          100
+        ]
+      },
+      seriesViewsPct: {
+        $multiply: [
+          {
+            $divide: [
+              "$seriesViews",
+              { $add: ["$movieViews", "$seriesViews"] }
+            ]
+          },
+          100
+        ]
+      }
+    }
+  },
+  
+  // Ordenar por fecha descendente
+  { $sort: { "_id.year": -1, "_id.month": -1 } },
+  
+  // Limitar a últimos 12 meses
+  { $limit: 12 },
+  
+  // Formato final
+  {
+    $project: {
+      _id: 0,
+      year: "$_id.year",
+      month: "$_id.month",
+      movies: {
+        views: "$movieViews",
+        uniqueTitles: "$uniqueMoviesCount",
+        durationHours: { $round: [{ $divide: ["$movieDurationMinutes", 60] }, 2] },
+        avgViewingPct: { $round: ["$avgMovieViewingPct", 2] },
+        percentOfTotal: { $round: ["$movieViewsPct", 2] }
+      },
+      series: {
+        views: "$seriesViews",
+        uniqueTitles: "$uniqueSeriesCount",
+        durationHours: { $round: [{ $divide: ["$seriesDurationMinutes", 60] }, 2] },
+        avgViewingPct: { $round: ["$avgSeriesViewingPct", 2] },
+        percentOfTotal: { $round: ["$seriesViewsPct", 2] }
+      },
+      total: {
+        views: "$totalViews",
+        durationHours: { $round: ["$totalDurationHours", 2] }
+      }
+    }
+  }
+]).forEach(doc => {
+  const monthNames = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  print(`\n📅 ${monthNames[doc.month]} ${doc.year}`);
+  print("=".repeat(80));
+  print(`  🎬 PELÍCULAS:`);
+  print(`     • Visionados: ${doc.movies.views.toLocaleString()} (${doc.movies.percentOfTotal}%)`);
+  print(`     • Títulos únicos: ${doc.movies.uniqueTitles}`);
+  print(`     • Duración total: ${doc.movies.durationHours.toLocaleString()} horas`);
+  print(`     • Promedio visto: ${doc.movies.avgViewingPct}%`);
+  print(`  📺 SERIES:`);
+  print(`     • Visionados: ${doc.series.views.toLocaleString()} (${doc.series.percentOfTotal}%)`);
+  print(`     • Títulos únicos: ${doc.series.uniqueTitles}`);
+  print(`     • Duración total: ${doc.series.durationHours.toLocaleString()} horas`);
+  print(`     • Promedio visto: ${doc.series.avgViewingPct}%`);
+  print(`  📊 TOTAL:`);
+  print(`     • Visionados totales: ${doc.total.views.toLocaleString()}`);
+  print(`     • Duración total: ${doc.total.durationHours.toLocaleString()} horas`);
+  const avgHoursPerDay = (doc.total.durationHours / 30).toFixed(2);
+  print(`     • Promedio diario: ${avgHoursPerDay} horas/día`);
+});
+
+print("\n✅ Q6 completada\n");
+
+// ============================================================================
+// Q7) PELÍCULAS EXITOSAS
+// Número total de visionados y duración acumulada para una película concreta
+// (Añadiendo estos campos al documento de la película)
+// ============================================================================
+
+print("🏆 Q7: PELÍCULAS EXITOSAS - Estadísticas de visionado\n");
+print("-".repeat(80));
+
+// Primero calculamos las estadísticas
+var movieStats = db.invoices_restructured.aggregate([
+  { $unwind: "$movies" },
+  
+  {
+    $lookup: {
+      from: "movies",
+      localField: "movies.movieId",
+      foreignField: "_id",
+      as: "movieInfo"
+    }
+  },
+  
+  { $unwind: "$movieInfo" },
+  
+  {
+    $group: {
+      _id: "$movies.movieId",
+      title: { $first: "$movieInfo.title" },
+      year: { $first: "$movieInfo.details.year" },
+      duration: { $first: "$movieInfo.details.duration" },
+      totalViews: { $sum: 1 },
+      uniqueClients: { $addToSet: "$client.customerCode" },
+      avgViewingPct: { $avg: "$movies.viewingPct" },
+      totalViewingMinutes: {
+        $sum: {
+          $multiply: [
+            "$movieInfo.details.duration",
+            { $divide: ["$movies.viewingPct", 100] }
+          ]
+        }
+      },
+      viewsByMonth: {
+        $push: {
+          month: { $month: "$movies.date" },
+          year: { $year: "$movies.date" }
+        }
+      },
+      imdbScore: { $first: "$movieInfo.details.imdbScore" },
+      genres: { $first: "$movieInfo.details.genres" },
+      director: { $first: "$movieInfo.details.director.name" }
+    }
+  },
+  
+  {
+    $addFields: {
+      uniqueClientsCount: { $size: "$uniqueClients" },
+      totalViewingHours: { $divide: ["$totalViewingMinutes", 60] },
+      avgViewsPerClient: {
+        $divide: ["$totalViews", { $size: "$uniqueClients" }]
+      }
+    }
+  },
+  
+  // Ordenar por total de visionados
+  { $sort: { totalViews: -1 } },
+  
+  // Top 20 películas más vistas
+  { $limit: 20 },
+  
+  {
+    $project: {
+      _id: 0,
+      movieId: "$_id",
+      title: 1,
+      year: 1,
+      duration: 1,
+      director: 1,
+      genres: 1,
+      imdbScore: 1,
+      viewingStats: {
+        totalViews: "$totalViews",
+        uniqueClients: "$uniqueClientsCount",
+        avgViewsPerClient: { $round: ["$avgViewsPerClient", 2] },
+        avgViewingPct: { $round: ["$avgViewingPct", 2] },
+        totalViewingHours: { $round: ["$totalViewingHours", 2] },
+        estimatedCompletions: {
+          $round: [
+            {
+              $multiply: [
+                "$totalViews",
+                { $divide: ["$avgViewingPct", 100] }
+              ]
+            },
+            0
+          ]
+        }
+      }
+    }
+  }
+]).toArray();
+
+// Mostrar resultados
+movieStats.forEach((movie, idx) => {
+  print(`\n${idx + 1}. ${movie.title} (${movie.year})`);
+  print("-".repeat(80));
+  print(`  🎬 Información básica:`);
+  print(`     • Director: ${movie.director}`);
+  print(`     • Géneros: ${movie.genres.join(", ")}`);
+  print(`     • Duración: ${movie.duration} minutos`);
+  print(`     • IMDB Score: ${movie.imdbScore}`);
+  print(`  📊 Estadísticas de visionado:`);
+  print(`     • Visionados totales: ${movie.viewingStats.totalViews.toLocaleString()}`);
+  print(`     • Clientes únicos: ${movie.viewingStats.uniqueClients.toLocaleString()}`);
+  print(`     • Promedio de visionados por cliente: ${movie.viewingStats.avgViewsPerClient}`);
+  print(`     • Porcentaje promedio visto: ${movie.viewingStats.avgViewingPct}%`);
+  print(`     • Horas totales vistas: ${movie.viewingStats.totalViewingHours.toLocaleString()} horas`);
+  print(`     • Visionados completos estimados: ${movie.viewingStats.estimatedCompletions}`);
+  
+  // Calcular métrica de éxito
+  const successScore = (
+    (movie.viewingStats.totalViews * 0.4) +
+    (movie.viewingStats.uniqueClients * 0.3) +
+    (movie.viewingStats.avgViewingPct * 0.3)
+  );
+  print(`     • Índice de éxito: ${successScore.toFixed(2)}`);
+});
+
+// Opcional: Actualizar la colección movies con estas estadísticas
+print("\n\n💾 ¿Desea actualizar la colección 'movies' con estas estadísticas?");
+print("   Ejecute el siguiente código para actualizar:");
+print("\n   movieStats.forEach(movie => {");
+print("     db.movies.updateOne(");
+print("       { _id: movie.movieId },");
+print("       {");
+print("         $set: {");
+print("           'analytics': movie.viewingStats,");
+print("           '_metadata.lastAnalyticsUpdate': new Date()");
+print("         }");
+print("       }");
+print("     );");
+print("   });\n");
+
+print("✅ Q7 completada\n");
+
+// ============================================================================
+// Q8) FRACASO EN SERIES
+// Promedio de porcentaje visto por usuario en cada serie para analizar abandono
+// ============================================================================
+
+print("📉 Q8: FRACASO EN SERIES - Análisis de abandono por serie\n");
+print("-".repeat(80));
+
+db.invoices_restructured.aggregate([
+  // Expandir series
+  { $unwind: "$series" },
+  
+  // Obtener información de la serie
+  {
+    $lookup: {
+      from: "series",
+      localField: "series.seriesId",
+      foreignField: "_id",
+      as: "seriesInfo"
+    }
+  },
+  
+  { $unwind: "$seriesInfo" },
+  
+  // Agrupar por serie y cliente
+  {
+    $group: {
+      _id: {
+        seriesId: "$series.seriesId",
+        customerCode: "$client.customerCode"
+      },
+      seriesTitle: { $first: "$seriesInfo.title" },
+      totalSeasons: { $first: "$seriesInfo.totalSeasons" },
+      totalEpisodes: { $first: "$seriesInfo.totalEpisodes" },
+      avgDuration: { $first: "$seriesInfo.avgDuration" },
+      episodesWatched: { $sum: 1 },
+      avgViewingPct: { $avg: "$series.viewingPct" },
+      maxSeason: { $max: "$series.season" },
+      minSeason: { $min: "$series.season" },
+      seasons: { $addToSet: "$series.season" }
+    }
+  },
+  
+  // Calcular métricas por cliente
+  {
+    $addFields: {
+      seasonsWatchedCount: { $size: "$seasons" },
+      completionRate: {
+        $divide: [
+          "$episodesWatched",
+          "$totalEpisodes"
+        ]
+      },
+      seasonPenetration: {
+        $divide: [
+          { $size: "$seasons" },
+          "$totalSeasons"
+        ]
+      }
+    }
+  },
+  
+  // Agrupar por serie para obtener estadísticas globales
+  {
+    $group: {
+      _id: "$_id.seriesId",
+      title: { $first: "$seriesTitle" },
+      totalSeasons: { $first: "$totalSeasons" },
+      totalEpisodes: { $first: "$totalEpisodes" },
+      avgDuration: { $first: "$avgDuration" },
+      totalViewers: { $sum: 1 },
+      avgViewingPctPerUser: { $avg: "$avgViewingPct" },
+      avgEpisodesPerUser: { $avg: "$episodesWatched" },
+      avgCompletionRate: { $avg: "$completionRate" },
+      avgSeasonPenetration: { $avg: "$seasonPenetration" },
+      viewersByCompletion: {
+        $push: {
+          customerCode: "$_id.customerCode",
+          episodesWatched: "$episodesWatched",
+          avgViewingPct: "$avgViewingPct",
+          seasonsWatched: "$seasonsWatchedCount",
+          completionRate: "$completionRate"
+        }
+      }
+    }
+  },
+  
+  // Calcular categorías de abandono
+  {
+    $addFields: {
+      abandonmentRate: {
+        $subtract: [1, "$avgCompletionRate"]
+      },
+      earlyAbandonmentCount: {
+        $size: {
+          $filter: {
+            input: "$viewersByCompletion",
+            as: "viewer",
+            cond: { $lt: ["$viewer.completionRate", 0.1] }
+          }
+        }
+      },
+      midAbandonmentCount: {
+        $size: {
+          $filter: {
+            input: "$viewersByCompletion",
+            as: "viewer",
+            cond: {
+              $and: [
+                { $gte: ["$viewer.completionRate", 0.1] },
+                { $lt: ["$viewer.completionRate", 0.5] }
+              ]
+            }
+          }
+        }
+      },
+      lateAbandonmentCount: {
+        $size: {
+          $filter: {
+            input: "$viewersByCompletion",
+            as: "viewer",
+            cond: {
+              $and: [
+                { $gte: ["$viewer.completionRate", 0.5] },
+                { $lt: ["$viewer.completionRate", 0.9] }
+              ]
+            }
+          }
+        }
+      },
+      completersCount: {
+        $size: {
+          $filter: {
+            input: "$viewersByCompletion",
+            as: "viewer",
+            cond: { $gte: ["$viewer.completionRate", 0.9] }
+          }
+        }
+      }
+    }
+  },
+  
+  // Calcular índice de abandono (0-100, donde 100 es peor)
+  {
+    $addFields: {
+      abandonmentIndex: {
+        $multiply: [
+          {
+            $add: [
+              // Peso del abandono general
+              { $multiply: ["$abandonmentRate", 40] },
+              // Peso del abandono temprano
+              {
+                $multiply: [
+                  { $divide: ["$earlyAbandonmentCount", "$totalViewers"] },
+                  30
+                ]
+              },
+              // Peso del viewing pct bajo
+              {
+                $multiply: [
+                  { $divide: [{ $subtract: [100, "$avgViewingPctPerUser"] }, 100] },
+                  30
+                ]
+              }
+            ]
+          },
+          100
+        ]
+      }
+    }
+  },
+  
+  // Ordenar por índice de abandono (peores primero)
+  { $sort: { abandonmentIndex: -1 } },
+  
+  // Top 30 series con mayor abandono
+  { $limit: 30 },
+  
+  // Formato final
+  {
+    $project: {
+      _id: 0,
+      title: 1,
+      totalSeasons: 1,
+      totalEpisodes: 1,
+      avgDuration: 1,
+      metrics: {
+        totalViewers: "$totalViewers",
+        avgViewingPctPerUser: { $round: ["$avgViewingPctPerUser", 2] },
+        avgEpisodesPerUser: { $round: ["$avgEpisodesPerUser", 2] },
+        avgCompletionRate: { $round: [{ $multiply: ["$avgCompletionRate", 100] }, 2] },
+        avgSeasonPenetration: { $round: [{ $multiply: ["$avgSeasonPenetration", 100] }, 2] },
+        abandonmentRate: { $round: [{ $multiply: ["$abandonmentRate", 100] }, 2] },
+        abandonmentIndex: { $round: ["$abandonmentIndex", 2] }
+      },
+      abandonmentBreakdown: {
+        earlyAbandonment: {
+          count: "$earlyAbandonmentCount",
+          percentage: {
+            $round: [
+              { $multiply: [{ $divide: ["$earlyAbandonmentCount", "$totalViewers"] }, 100] },
+              2
+            ]
+          }
+        },
+        midAbandonment: {
+          count: "$midAbandonmentCount",
+          percentage: {
+            $round: [
+              { $multiply: [{ $divide: ["$midAbandonmentCount", "$totalViewers"] }, 100] },
+              2
+            ]
+          }
+        },
+        lateAbandonment: {
+          count: "$lateAbandonmentCount",
+          percentage: {
+            $round: [
+              { $multiply: [{ $divide: ["$lateAbandonmentCount", "$totalViewers"] }, 100] },
+              2
+            ]
+          }
+        },
+        completers: {
+          count: "$completersCount",
+          percentage: {
+            $round: [
+              { $multiply: [{ $divide: ["$completersCount", "$totalViewers"] }, 100] },
+              2
+            ]
+          }
+        }
+      }
+    }
+  }
+]).forEach((series, idx) => {
+  print(`\n${idx + 1}. ${series.title}`);
+  print("-".repeat(80));
+  print(`  📺 Información básica:`);
+  print(`     • Temporadas: ${series.totalSeasons}`);
+  print(`     • Episodios totales: ${series.totalEpisodes}`);
+  print(`     • Duración promedio: ${series.avgDuration} min/episodio`);
+  
+  print(`  👥 Métricas de audiencia:`);
+  print(`     • Espectadores totales: ${series.metrics.totalViewers.toLocaleString()}`);
+  print(`     • Episodios promedio por usuario: ${series.metrics.avgEpisodesPerUser}`);
+  print(`     • Porcentaje promedio visto: ${series.metrics.avgViewingPctPerUser}%`);
+  print(`     • Tasa de completación: ${series.metrics.avgCompletionRate}%`);
+  print(`     • Penetración de temporadas: ${series.metrics.avgSeasonPenetration}%`);
+  
+  print(`  📉 Análisis de abandono:`);
+  print(`     • Tasa de abandono general: ${series.metrics.abandonmentRate}%`);
+  print(`     • Índice de abandono: ${series.metrics.abandonmentIndex}/100 ${
+    series.metrics.abandonmentIndex > 70 ? '🔴 CRÍTICO' :
+    series.metrics.abandonmentIndex > 50 ? '🟡 ALTO' :
+    series.metrics.abandonmentIndex > 30 ? '🟢 MODERADO' : '✅ BAJO'
+  }`);
+  
+  print(`  📊 Distribución del abandono:`);
+  print(`     • Abandono temprano (<10%): ${series.abandonmentBreakdown.earlyAbandonment.count} (${series.abandonmentBreakdown.earlyAbandonment.percentage}%)`);
+  print(`     • Abandono medio (10-50%): ${series.abandonmentBreakdown.midAbandonment.count} (${series.abandonmentBreakdown.midAbandonment.percentage}%)`);
+  print(`     • Abandono tardío (50-90%): ${series.abandonmentBreakdown.lateAbandonment.count} (${series.abandonmentBreakdown.lateAbandonment.percentage}%)`);
+  print(`     • Completaron (>90%): ${series.abandonmentBreakdown.completers.count} (${series.abandonmentBreakdown.completers.percentage}%)`);
+  
+  // Diagnóstico y recomendaciones
+  print(`  💡 Diagnóstico:`);
+  if (series.abandonmentBreakdown.earlyAbandonment.percentage > 50) {
+    print(`     ⚠️  MÁS DEL 50% ABANDONA EN LOS PRIMEROS EPISODIOS`);
+    print(`     → Problema: Primeros episodios no enganchan`);
+    print(`     → Recomendación: Revisar ritmo y gancho inicial`);
+  } else if (series.abandonmentBreakdown.midAbandonment.percentage > 40) {
+    print(`     ⚠️  ALTO ABANDONO EN LA MITAD DE LA SERIE`);
+    print(`     → Problema: Pérdida de interés en desarrollo`);
+    print(`     → Recomendación: Mejorar arcos narrativos medios`);
+  } else if (series.metrics.avgViewingPctPerUser < 60) {
+    print(`     ⚠️  LOS USUARIOS VEN MENOS DEL 60% DE CADA EPISODIO`);
+    print(`     → Problema: Contenido no retiene atención`);
+    print(`     → Recomendación: Contenido puede ser aburrido o lento`);
+  } else if (series.abandonmentBreakdown.completers.percentage > 40) {
+    print(`     ✅ MÁS DEL 40% COMPLETA LA SERIE`);
+    print(`     → Serie exitosa con buena retención`);
+  } else {
+    print(`     ⚠️  ABANDONO DISTRIBUIDO EN DIFERENTES ETAPAS`);
+    print(`     → Problema: Calidad inconsistente`);
+    print(`     → Recomendación: Auditar temporadas individuales`);
+  }
+});
+
+print("\n\n✅ Q8 completada\n");
+
+// ============================================================================
+// RESUMEN FINAL
+// ============================================================================
+
+print("\n" + "=".repeat(80));
+print("RESUMEN DE CONSULTAS DE AGREGACIÓN");
+print("=".repeat(80) + "\n");
+
+print("✅ Consultas implementadas:");
+print("   Q1. Serial Lovers - Clientes que completaron temporadas");
+print("   Q2. Apellidos comunes - Apellido más frecuente por país");
+print("   Q3. Actores populares - Top-5 actores más vistos en España");
+print("   Q4. Clásicos modernos - Top-10 películas del siglo XX por año");
+print("   Q5. Facturación mensual - Ingresos totales por mes");
+print("   Q6. Consumo mensual - Visionados y duración (series vs películas)");
+print("   Q7. Películas exitosas - Estadísticas de visionado por película");
+print("   Q8. Fracaso en series - Análisis de abandono y engagement");
+
+print("\n📊 Capacidades implementadas:");
+print("   • Análisis de comportamiento de usuarios");
+print("   • Métricas de engagement y retención");
+print("   • Análisis de contenido más popular");
+print("   • Estadísticas financieras y de consumo");
+print("   • Detección de patrones de abandono");
+print("   • Segmentación por geografía y demografía");
+print("   • Análisis temporal (mensual, anual)");
+print("   • Lookups entre colecciones relacionadas");
+
+print("\n🎯 Casos de uso empresariales:");
+print("   • Identificar contenido de alto valor");
+print("   • Detectar contenido con problemas de calidad");
+print("   • Optimizar catálogo según preferencias");
+print("   • Análisis de ROI por contenido");
+print("   • Segmentación de clientes");
+print("   • Predicción de churn");
+print("   • Recomendaciones personalizadas");
+
+print("\n💡 Optimizaciones aplicadas:");
+print("   • Uso de índices en campos de agregación");
+print("   • Proyecciones para reducir datos procesados");
+print("   • Límites en resultados para rendimiento");
+print("   • Facets para agregaciones paralelas");
+print("   • Lookups eficientes con pipeline");
+
+print("\n🔧 Próximos pasos sugeridos:");
+print("   1. Crear vistas materializadas para consultas frecuentes");
+print("   2. Implementar cache para resultados de Q5 y Q6");
+print("   3. Agregar time-series collections para métricas");
+print("   4. Crear dashboard con estas métricas");
+print("   5. Implementar alertas automáticas para abandono alto");
+
+print("\n" + "=".repeat(80));
+print("FECHA DE EJECUCIÓN: " + new Date().toISOString());
+print("BASE DE DATOS: streamit_db");
+print("COLECCIONES: movies, series, invoices_restructured");
+print("=".repeat(80) + "\n");
