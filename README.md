@@ -853,3 +853,58 @@ db.runCommand({
 ```
 
 ---
+
+---
+
+## 7. Consultas de Agregación (Casos de Uso Analíticos)
+
+### Objetivo
+
+Implementar el **pipeline de agregación de MongoDB** para responder a preguntas de negocio complejas sobre el consumo de contenido, las finanzas y los patrones de comportamiento de los clientes, utilizando el modelo de datos normalizado (`movies`, `series`, `invoices_restructured`).
+
+### Ejecutar Script de Consultas de Agregación
+
+Usar `mongosh` desde terminal o la shell de MongoDB Compass:
+
+```bash
+# Cambiar a la base de datos
+use streamit_db
+
+# Copiar y pegar TODO el contenido del archivo PO22_05_07_4_agregaciones.txt
+```
+
+Al presionar ENTER se ejecutarán las 8 consultas de agregación.
+
+### Casos de Uso Implementados (Q1 - Q8)
+
+```
+| ID | Nombre de la Consulta | Colecciones Principales | Objetivo Analítico |
+| :---: | :--- | :--- | :--- |
+| **Q1** | **SERIAL LOVERS** | `invoices_restructured`, `series` | Identificar clientes que completaron al menos una temporada de una serie (más del 70% de episodios vistos y > 70% de visión por episodio). |
+| **Q2** | **APELLIDOS COMUNES** | `invoices_restructured` | Determinar el apellido más frecuente por país para estudios demográficos y segmentación geográfica. |
+
+...
+```
+
+---
+
+### Salida Esperada
+
+El script generará una salida detallada en la consola, mostrando los resultados de cada una de las 8 consultas, incluyendo métricas clave:
+
+* **Q1**: Clientes y las series/temporadas que completaron.
+* **Q2**: Apellidos más comunes y su frecuencia por país.
+* ...
+
+---
+
+### Beneficios y Optimizaciones del Pipeline
+
+Los pipelines de agregación implementados demuestran las capacidades analíticas del modelo normalizado, aplicando optimizaciones avanzadas:
+
+* ✅ **Consultas Analíticas Complejas**: Implementación de lógica de negocio (ej. "temporada completada") directamente en la base de datos.
+* ✅ **Combinación de Datos (`$lookup`)**: Uso eficiente del operador `$lookup` para unir datos de las facturas con las colecciones de `movies` y `series`.
+* ✅ **Agregaciones Paralelas (`$facet`)**: Uso de `$facet` en la Q6 para calcular métricas de consumo de películas y series simultáneamente, combinando resultados en una única etapa final.
+* ✅ **Transformación de Datos (`$addFields`)**: Creación de campos calculados en tiempo real (ej. `totalDurationHours`, `avgEpisodesPerSeason`) para el análisis.
+* ✅ **Cálculo Financiero**: Conversión segura a `Decimal` (`$toDecimal`) para sumas de ingresos, garantizando precisión monetaria.
+* ✅ **Optimización de Rendimiento**: Uso de `$project` para reducir el tamaño de los documentos, `$sort` para preparar los rankings y `$limit` para restringir el conjunto de resultados (Top-5, Top-10, últimos 12 meses).
