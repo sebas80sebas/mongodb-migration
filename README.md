@@ -4,8 +4,7 @@
 ### Instalar MongoDB Database Tools
 Para Ubuntu/Debian
 ```bash
-wget https://fastdl.mong
-odb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.9.4.deb
+wget https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.9.4.deb
 sudo dpkg -i mongodb-database-tools-ubuntu2204-x86_64-100.9.4.deb
 
 # Verificar instalación
@@ -17,791 +16,44 @@ mongoimport --version
 pip install pymongo
 ```
 
-## Análisis Exploratorio de Datos
+---
 
-Ejecutar el siguiente comando
+## 1. Análisis Exploratorio de Datos
+
+Ejecutar el siguiente comando:
 ```bash
 python3 analisis_exploratorio.py
 ```
  
-### Salida
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                  ANÁLISIS EXPLORATORIO DE DATOS (EDA)                        ║
-║                   Sistema de Facturas - MongoDB                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-    
+### Salida Esperada
+El script generará un informe detallado con:
+- Análisis de identificadores (_id)
+- Formatos de fechas detectados
+- Estructura de documentos (Client, Contract, Product)
+- Estadísticas de contenido (Movies, Series)
+- Problemas de calidad de datos
+- Recomendaciones para limpieza
 
-CARGANDO ARCHIVOS JSON
-
-
-📁 Procesando: dump011_16.json
-   ✓ Cargados 1386 documentos (encoding: utf-8)
-
-📁 Procesando: dump012_16.json
-   ✓ Cargados 1370 documentos (encoding: utf-8)
-
-📁 Procesando: dump01_16.json
-   ✓ Cargados 1226 documentos (encoding: utf-8)
-
-📁 Procesando: dump02_16.json
-   ✓ Cargados 1244 documentos (encoding: utf-8)
-   
-...
-
-
-TOTAL DE DOCUMENTOS CARGADOS: 15807
-
-1. ANÁLISIS DE IDENTIFICADORES (_id)
-
-
-📊 Estadísticas de IDs:
-   • Total de documentos: 15807
-   • Documentos sin _id: 0
-   • IDs únicos: 15807
-   • IDs duplicados: 0
-
-📋 Formatos de ID encontrados:
-   • TLN/N/N/N: 144 documentos
-   • NON/N/N/N: 141 documentos
-   • ANN/N/N/N: 136 documentos
-   • LSN/N/N/N: 134 documentos
-   • BTN/N/N/N: 127 documentos
-   • LBN/N/N/N: 126 documentos
-   • AWN/N/N/N: 123 documentos
-   • VEN/N/N/N: 121 documentos
-   • BRN/N/N/N: 120 documentos
-   • PWN/N/N/N: 119 documentos
-
-
-2. ANÁLISIS DE FECHAS
-
-📅 Campo: 'charge date'
-   • Valores ausentes/nulos: 0
-   • Formatos detectados: 1
-   • Distribución de formatos:
-      - DD/MM/YY: 15807 documentos
-   • Ejemplos: ['03/05/17', '03/05/17', '03/05/17']
-
-📅 Campo: 'dump date'
-   • Valores ausentes/nulos: 0
-   • Formatos detectados: 1
-   • Distribución de formatos:
-      - DD/MM/YY: 15807 documentos
-   • Ejemplos: ['14/10/16', '14/10/16', '14/10/16']
-
-📅 Campo: 'billing'
-   • Valores ausentes/nulos: 0
-   • Formatos detectados: 1
-   • Distribución de formatos:
-      - Month YYYY: 15807 documentos
-   • Ejemplos: ['November 2016', 'November 2016', 'November 2016']
-
-
-3. ANÁLISIS DE ESTRUCTURA - CLIENT
-
-📊 Estadísticas de Client:
-   • Documentos sin Client: 0
-   • Campos únicos encontrados: 7
-
-📋 Campos en Client:
-   • Birth date
-   • DNI
-   • Email
-   • Name
-   • Phone
-   • Surname
-      ⚠️  PROBLEMA: Tipos mixtos detectados
-         - str: 12585 documentos
-         - list: 3222 documentos
-   • customer code
-
-4. ANÁLISIS DE ESTRUCTURA - CONTRACT
-
-📊 Estadísticas de Contract:
-   • Documentos sin contract: 0
-   • Campos únicos en contract: 8
-   • Documentos sin product: 0
-   • Campos únicos en product: 8
-
-📋 Campos en Contract:
-   • ZIP
-   • address
-   • contract ID
-   • country
-   • end date
-   • product
-   • start date
-   • town
-
-📋 Campos en Product:
-   • Reference
-   • cost per content
-   • cost per day
-   • cost per minute
-   • monthly fee
-   • promotion
-   • type
-   • zapping
-
-
-5. ANÁLISIS DE CONTENIDOS - MOVIES & SERIES
-
-🎬 Estadísticas de Movies:
-   • Documentos sin Movies: 4404
-   • Total de películas: 65540
-   • Promedio por documento: 5.75
-   • Campos únicos: 6
-
-📺 Estadísticas de Series:
-   • Documentos sin Series: 3136
-   • Total de series: 91368
-   • Promedio por documento: 7.21
-   • Campos únicos: 10
-
-📋 Campos en Movies:
-   • Date
-   • Details
-   • License
-   • Time
-   • Title
-   • Viewing PCT
-
-📋 Campos en Series:
-   • Avg duration
-   • Date
-   • Episode
-   • License
-   • Season
-   • Time
-   • Title
-   • Total Episodes
-   • Total Seasons
-   • Viewing PCT
-
-
-6. ANÁLISIS DE CAMPOS NUMÉRICOS
-
-💰 Campo: 'TOTAL'
-   • Valores ausentes: 0
-   • Tipos de datos encontrados:
-      - int: 8637
-      - float: 7170
-   • Estadísticas:
-      - Mínimo: 20.22
-      - Máximo: 1837.47
-      - Promedio: 243.52
-
-
-7. RESUMEN DE PROBLEMAS DE CALIDAD DETECTADOS
-
-🔴 PROBLEMAS CRÍTICOS:
-
-   2. VALORES AUSENTES
-      • Acción requerida: Definir valores por defecto o eliminar
-
-   3. FORMATOS DE FECHA HETEROGÉNEOS
-      • Acción requerida: Normalizar a formato ISO 8601
-
-   4. TIPOS DE DATOS MIXTOS
-      • Client.Surname: {'list', 'str'}
-      • Acción requerida: Convertir a tipo único
-
-
-RECOMENDACIONES PARA LIMPIEZA:
-
-
-1. NORMALIZACIÓN DE FECHAS
-   - Convertir todas las fechas a formato ISO 8601 (YYYY-MM-DD)
-   - Usar $dateFromString con manejo de errores
-   
-2. GESTIÓN DE DUPLICADOS
-   - Identificar criterio de unicidad real
-   - Eliminar o consolidar duplicados
-   
-3. VALORES AUSENTES
-   - Definir política de nulos por campo
-   - Considerar valores por defecto cuando sea apropiado
-   
-4. NORMALIZACIÓN DE TIPOS
-   - Convertir campos numéricos a números
-   - Estandarizar strings (trim, lowercase donde aplique)
-   
-5. ESTRUCTURA DE DOCUMENTOS
-   - Verificar anidamiento de objetos
-   - Normalizar nombres de campos (camelCase vs snake_case)
-        
-
-Análisis exploratorio completado.
-
-## Justificación Detallada de Decisiones de Limpieza y Normalización de Datos
-
-### 1. NORMALIZACIÓN DE FECHAS
-
-#### Problema Identificado
-- **charge date** y **dump date**: formato `DD/MM/YY` (ej: "03/05/17")
-- **billing**: formato `Month YYYY` (ej: "November 2016")
-- **Client.Birth date**: formato `DD/MM/YY`
-- **contract dates**: formato `DD/MM/YY`
-
-#### Decisión Tomada
-Convertir todos los campos de fecha al tipo **ISODate** de MongoDB.
-
-#### Justificación
-
-##### Razones Técnicas:
-1. **Consultas Temporales Eficientes**: MongoDB optimiza automáticamente las consultas sobre tipos Date
-2. **Comparaciones Nativas**: Permite usar operadores como `$gte`, `$lte`, `$between` sin conversiones
-3. **Agregaciones Temporales**: Facilita el uso de operadores como `$dateToString`, `$dateDiff`, `$dateAdd`
-4. **Ordenamiento Correcto**: Los strings ordenan alfabéticamente (incorrecto para fechas)
-
-##### Razones de Negocio:
-1. **Análisis Temporal**: Consultas como "facturas del último mes" se simplifican enormemente
-2. **Reportes**: Generar reportes por período (mensual, trimestral, anual) es más eficiente
-3. **Internacionalización**: ISODate es independiente de la configuración regional
-4. **Validación**: MongoDB valida automáticamente la validez de las fechas
-
-##### Decisiones Específicas:
-- **Años con 2 dígitos**: Se asume formato `20XX` (2000-2099) ya que los datos son de 2016-2017
-- **billing a día 1**: Se establece el primer día del mes como referencia estándar
-- **onError: null**: Si una fecha no puede convertirse, se marca como `null` para revisión manual
-
-#### Impacto
-- ✅ Mejora rendimiento de consultas temporales ~300%
-- ✅ Reduce complejidad de código en aplicaciones cliente
-- ✅ Permite usar índices de tipo Date para optimización
+**Total de documentos**: 15,807
 
 ---
 
-### 2. CORRECCIÓN DE TIPOS DE DATOS MIXTOS
+## 2. Importación de Datos a MongoDB
 
-#### Problema Identificado
-**Client.Surname** tiene tipos mixtos:
-- `string`: 12,585 documentos (79.6%)
-- `array`: 3,222 documentos (20.4%)
+### 2.1 Conversión a Array JSON Válido
+**Problema**: Los JSON originales contienen múltiples objetos separados (NDJSON)
 
-Ejemplo:
-```json
-// Como string
-{"Surname": "García"}
-
-// Como array
-{"Surname": ["García", "López"]}
-```
-
-#### Decisión Tomada
-Normalizar todo a **string**, concatenando arrays con espacios.
-
-#### Justificación
-
-##### Alternativas Consideradas:
-1. **Mantener como array**: ❌ Rompe compatibilidad con 79.6% de documentos
-2. **Convertir todo a array**: ❌ Complejidad innecesaria para búsquedas
-3. **Crear campo adicional**: ❌ Duplica información
-4. **Concatenar a string**: ✅ **SELECCIONADA**
-
-##### Razones de la Decisión:
-1. **Consistencia**: Un solo tipo facilita consultas y validaciones
-2. **Búsquedas de Texto**: Los índices de texto funcionan mejor con strings
-3. **Presentación**: Los apellidos compuestos se muestran naturalmente ("García López")
-4. **Compatibilidad**: La mayoría de sistemas esperan apellidos como string
-
-##### Implementación:
-```javascript
-// Array → String con espacios
-["García", "López"] → "García López"
-```
-
-#### Impacto
-- ✅ Elimina complejidad en consultas
-- ✅ Mejora rendimiento de índices de texto
-- ✅ Simplifica validación de esquema
-
----
-
-### 3. NORMALIZACIÓN DEL CAMPO TOTAL
-
-#### Problema Identificado
-Campo **TOTAL** con tipos mixtos:
-- `int`: 8,637 documentos (54.6%)
-- `float`: 7,170 documentos (45.4%)
-
-#### Decisión Tomada
-Convertir todo a **double** (float de 64 bits).
-
-#### Justificación
-
-##### Razones Técnicas:
-1. **Precisión Decimal**: Los importes monetarios requieren decimales
-2. **Operaciones Matemáticas**: Suma, promedio, etc. mantienen precisión
-3. **Estándar Financiero**: Float/double es estándar para montos monetarios en bases de datos
-
-##### Razones de Negocio:
-1. **Facturación Precisa**: No se pueden perder céntimos en cálculos
-2. **Impuestos**: Los cálculos de IVA requieren decimales exactos
-3. **Análisis Financiero**: Estadísticas y reportes necesitan precisión
-
-##### Consideraciones:
-- MongoDB usa BSON Double (IEEE 754 64-bit)
-- Precisión suficiente para valores monetarios típicos
-- Para aplicaciones críticas financieras, se podría usar **Decimal128**, pero double es suficiente para este caso
-
-#### Impacto
-- ✅ Elimina errores de redondeo en agregaciones
-- ✅ Permite cálculos estadísticos precisos
-- ✅ Facilita validación de rangos válidos
-
----
-
-### 4. NORMALIZACIÓN DE NOMBRES DE CAMPOS
-
-#### Problema Identificado
-Inconsistencias en nomenclatura:
-- Campos con espacios: "charge date", "Birth date"
-- Mezcla de mayúsculas: "ZIP", "DNI", "Email"
-- Inconsistencia de estilo: "customer code" vs "contractID"
-
-#### Decisión Tomada
-Estandarizar a **camelCase** en todos los campos.
-
-#### Justificación
-
-##### Convenciones MongoDB:
-- La documentación oficial recomienda camelCase
-- Facilita el uso en JavaScript/Node.js sin transformaciones
-- Evita problemas con espacios en nombres de campo
-
-##### Ejemplos de Transformación:
-```javascript
-"charge date"      → "chargeDate"
-"Birth date"       → "birthDate"
-"customer code"    → "customerCode"
-"ZIP"              → "zip"
-"DNI"              → "dni"
-"cost per minute"  → "costPerMinute"
-```
-
-##### Razones de la Decisión:
-1. **Legibilidad**: Más fácil de leer que snake_case
-2. **JavaScript Nativo**: No requiere corchetes `doc["charge date"]`, se usa `doc.chargeDate`
-3. **Consistencia**: Todos los campos siguen la misma convención
-4. **Mantenibilidad**: Reduce errores de tipeo
-5. **APIs RESTful**: Estándar en JSON APIs modernas
-
-##### Ventajas Técnicas:
-```javascript
-// Antes (problemas)
-db.invoices.find({ "charge date": { $gte: date } })  // Comillas obligatorias
-let total = invoice["TOTAL"]  // Confusión con constantes
-
-// Después (limpio)
-db.invoices.find({ chargeDate: { $gte: date } })  // Natural
-let total = invoice.total  // Claro y conciso
-```
-
-#### Impacto
-- ✅ Código más limpio y legible
-- ✅ Menos errores de programación
-- ✅ Mejor experiencia de desarrollo
-- ✅ Alineación con estándares de la industria
-
----
-
-### 5. LIMPIEZA Y NORMALIZACIÓN DE STRINGS
-
-#### Problemas Identificados
-- Espacios en blanco innecesarios al inicio/final
-- Emails con mayúsculas inconsistentes
-- Posible duplicación por diferencias de formato
-
-#### Decisiones Tomadas
-
-##### 5.1 Trim en Todos los Campos de Texto
-**Justificación:**
-- Elimina espacios accidentales de entrada de datos
-- Evita duplicados por espacios ("García" ≠ " García ")
-- Mejora eficiencia de índices
-
-##### 5.2 Email a Lowercase
-**Justificación:**
-- Los emails son case-insensitive por RFC 5321
-- Evita duplicados ("USER@email.com" vs "user@email.com")
-- Facilita búsquedas y validación de unicidad
-- Estándar en la industria
-
-##### 5.3 DNI/Identificadores en Mayúsculas
-**Decisión:** Mantener formato original después de trim
-**Justificación:**
-- Los DNI pueden tener formatos específicos por país
-- Mejor preservar formato oficial
-- Validación específica debe hacerse en capa de aplicación
-
-#### Impacto
-- ✅ Reduce duplicados por formato
-- ✅ Mejora calidad de búsquedas
-- ✅ Facilita validación de unicidad
-
----
-
-### 6. CONVERSIÓN DE CAMPOS NUMÉRICOS EN PRODUCT
-
-#### Problema Identificado
-Campos en `contract.product` que deberían ser numéricos pero podrían estar como strings:
-- costPerContent
-- costPerDay
-- costPerMinute
-- monthlyFee
-
-#### Decisión Tomada
-Convertir todos a **double** con valor por defecto 0.
-
-#### Justificación
-
-##### Razones Técnicas:
-1. **Operaciones Matemáticas**: Cálculo de totales requiere números
-2. **Agregaciones**: Sum, avg, max, min solo funcionan con números
-3. **Comparaciones**: Filtrar por rango de precios requiere tipos numéricos
-
-##### Razones de Negocio:
-1. **Análisis de Precios**: Estudios de rentabilidad por producto
-2. **Optimización Comercial**: Identificar productos más/menos rentables
-3. **Reportes Financieros**: Cálculos de ingresos por tipo de servicio
-
-##### Valor por Defecto = 0:
-**Justificación:**
-- Campos ausentes probablemente indican "sin costo" (ej: promociones)
-- Permite operaciones matemáticas sin errores
-- Facilita identificar productos gratuitos vs de pago
-
-#### Impacto
-- ✅ Habilita análisis de precios y rentabilidad
-- ✅ Permite consultas por rango de precio
-- ✅ Facilita cálculos de ingresos proyectados
-
----
-
-### 7. CONVERSIÓN DE VIEWING PCT
-
-#### Problema Identificado
-Campo **Viewing PCT** almacenado como:
-- String con porcentaje: "75%"
-- Número: 75
-- Inconsistencia en interpretación
-
-#### Decisión Tomada
-Convertir a **decimal normalizado (0-1)**
-
-Ejemplos:
-- "75%" → 0.75
-- "100%" → 1.0
-- "12.5%" → 0.125
-
-#### Justificación
-
-##### Razones Técnicas:
-1. **Estándar Matemático**: Los porcentajes se representan como decimales (0-1)
-2. **Cálculos Precisos**: Facilita operaciones matemáticas
-3. **Agregaciones**: Promedios y sumas son más intuitivos
-
-##### Razones de Negocio:
-1. **Análisis de Engagement**: Medir qué contenido se ve completo
-2. **Métricas de Calidad**: Identificar contenido popular
-3. **Recomendaciones**: Usar viewing % para algoritmos
-
-##### Ventajas del Formato 0-1:
-```javascript
-// Cálculo de minutos vistos
-minutosVistos = duracionTotal * viewingPct
-// 120 minutos * 0.75 = 90 minutos
-
-// Promedio de viewing
-db.invoices.aggregate([
-  { $group: { _id: null, avgViewing: { $avg: "$Movies.viewingPct" } } }
-])
-// Resultado: 0.65 (65% de visualización promedio)
-```
-
-#### Impacto
-- ✅ Facilita análisis de comportamiento de usuario
-- ✅ Mejora precisión en cálculos de engagement
-- ✅ Estandariza con prácticas de la industria
-
----
-
-### 8. CAMPOS CALCULADOS Y METADATOS
-
-#### 8.1 Campo Client.age
-
-**Decisión:** Calcular edad actual desde birthDate
-
-**Justificación:**
-1. **Segmentación**: Análisis por grupos etarios
-2. **Marketing**: Campañas dirigidas por edad
-3. **Validación**: Detectar edades incorrectas
-4. **Tiempo Real**: Se actualiza automáticamente
-
-**Consideración:** La edad es un campo derivado que podría calcularse on-demand, pero:
-- ✅ Mejora rendimiento de consultas frecuentes
-- ✅ Facilita índices compuestos
-- ❌ Requiere actualización periódica (trade-off aceptable)
-
-#### 8.2 Campo contentStats
-
-**Estructura:**
-```json
-{
-  "contentStats": {
-    "totalMovies": 5,
-    "totalSeries": 7,
-    "totalContent": 12
-  }
-}
-```
-
-**Justificación:**
-1. **Performance**: Evita contar arrays en cada consulta
-2. **Análisis**: Facilita segmentación de usuarios por consumo
-3. **Reportes**: Datos precalculados para dashboards
-4. **Índices**: Permite filtrar eficientemente por nivel de uso
-
-**Ejemplo de Uso:**
-```javascript
-// Usuarios con alto consumo
-db.invoices.find({ "contentStats.totalContent": { $gte: 20 } })
-
-// Promedio de contenido por factura
-db.invoices.aggregate([
-  { $group: { _id: null, avg: { $avg: "$contentStats.totalContent" } } }
-])
-```
-
-#### 8.3 Campo _metadata
-
-**Estructura:**
-```json
-{
-  "_metadata": {
-    "cleanedAt": ISODate("2024-10-30T..."),
-    "version": "1.0"
-  }
-}
-```
-
-**Justificación:**
-1. **Auditoría**: Rastrear cuándo se limpió cada documento
-2. **Versionado**: Gestionar esquemas evolutivos
-3. **Debugging**: Identificar documentos no procesados
-4. **Compliance**: Requisitos de trazabilidad
-
----
-
-### 9. ESTRATEGIA DE ÍNDICES
-
-#### Índices Creados
-
-##### 9.1 Índice Simple en customerCode
-```javascript
-db.invoices.createIndex({ "Client.customerCode": 1 })
-```
-**Justificación:**
-- Consulta más frecuente: buscar facturas por cliente
-- Cardinalidad alta (muchos valores únicos)
-- Selectividad excelente
-
-##### 9.2 Índice Simple en contractId
-```javascript
-db.invoices.createIndex({ "contract.contractId": 1 })
-```
-**Justificación:**
-- Búsqueda directa de contratos
-- Relaciones con otras colecciones
-- Alto uso en JOIN operations
-
-##### 9.3 Índice Simple en chargeDate
-```javascript
-db.invoices.createIndex({ "chargeDate": 1 })
-```
-**Justificación:**
-- Consultas por rango temporal muy frecuentes
-- Ordenamiento por fecha
-- Soporte para time-series queries
-
-##### 9.4 Índice Simple en billing
-```javascript
-db.invoices.createIndex({ "billing": 1 })
-```
-**Justificación:**
-- Agrupaciones por período de facturación
-- Reportes mensuales/trimestrales
-- Análisis de tendencias temporales
-
-##### 9.5 Índice Compuesto customerCode + chargeDate
-```javascript
-db.invoices.createIndex({ "Client.customerCode": 1, "chargeDate": 1 })
-```
-**Justificación:**
-- Query pattern común: "facturas de un cliente en un período"
-- Soporta consultas por cliente (prefix matching)
-- Ordenamiento eficiente por fecha dentro de cliente
-
-**Ejemplo de Query Optimizada:**
-```javascript
-db.invoices.find({
-  "Client.customerCode": "CUST123",
-  "chargeDate": { $gte: ISODate("2024-01-01"), $lte: ISODate("2024-12-31") }
-}).sort({ chargeDate: -1 })
-```
-
-##### 9.6 Índice en email
-```javascript
-db.invoices.createIndex({ "Client.email": 1 })
-```
-**Justificación:**
-- Búsqueda de clientes por email (login, recuperación contraseña)
-- Validación de unicidad
-- Cardinalidad alta
-
-#### Consideraciones de Performance
-
-**Selectividad de Índices:**
-- customerCode: ~15,000 valores únicos (excelente)
-- email: ~15,000 valores únicos (excelente)
-- chargeDate: ~50 valores únicos (buena para rangos)
-- billing: ~12 valores únicos (buena para agrupaciones)
-
-**Trade-offs:**
-- ✅ Consultas 10-100x más rápidas
-- ✅ Ordenamientos instantáneos
-- ❌ +10% overhead en inserciones
-- ❌ +20MB espacio de almacenamiento
-
-**Decisión:** El trade-off es favorable dado que:
-- Sistema read-heavy (más consultas que inserciones)
-- Facturas son inmutables después de creación
-- Performance de lectura es crítica para UX
-
----
-
-### 10. VALIDACIONES FINALES
-
-#### Checks Implementados
-
-##### 10.1 Verificación de Fechas Nulas
-```javascript
-var nullDates = db.invoices.countDocuments({
-  $or: [
-    { chargeDate: null },
-    { dumpDate: null },
-    { billing: null }
-  ]
-});
-```
-**Justificación:**
-- Las fechas son campos críticos del negocio
-- Null indica problema en conversión
-- Requiere intervención manual
-
-##### 10.2 Verificación de Total Numérico
-```javascript
-var invalidTotals = db.invoices.countDocuments({
-  total: { $not: { $type: "double" } }
-});
-```
-**Justificación:**
-- Total es el campo más crítico (dinero)
-- Debe ser siempre numérico
-- Errores aquí afectan facturación
-
-##### 10.3 Verificación de Surname Normalizado
-```javascript
-var arraySurnames = db.invoices.countDocuments({
-  "Client.surname": { $type: "array" }
-});
-```
-**Justificación:**
-- Confirma que la normalización funcionó
-- Debe retornar 0
-- Arrays residuales indican error en pipeline
-
-#### Estrategia de Validación
-
-**Filosofía:** "Trust but verify"
-1. Ejecutar transformación
-2. Validar resultado
-3. Reportar excepciones
-4. Permitir rollback si es necesario
-
----
-
-### 11. RESUMEN DE DECISIONES CRÍTICAS
-
-#### Decisiones Principales
-
-| Decisión | Alternativas | Razón de Elección |
-|----------|-------------|-------------------|
-| Fechas → ISODate | Mantener strings | Performance y funcionalidad nativa |
-| Surname → String | Mantener array | Consistencia (80% ya eran strings) |
-| Total → Double | Decimal128 | Suficiente precisión, mejor performance |
-| camelCase | snake_case | Estándar MongoDB y JavaScript |
-| Email lowercase | Case-sensitive | RFC compliance, evita duplicados |
-| ViewingPct 0-1 | Mantener % | Estándar matemático |
-| Índices múltiples | Solo _id | Balance performance vs storage |
-
-#### Principios Aplicados
-
-1. **Consistencia**: Un formato para cada tipo de dato
-2. **Estándares**: Seguir convenciones de MongoDB y la industria
-3. **Performance**: Optimizar para queries más frecuentes
-4. **Mantenibilidad**: Código más limpio y comprensible
-5. **Escalabilidad**: Estructura que soporta crecimiento
-6. **Auditoría**: Trazabilidad de transformaciones
-
-#### Métricas de Calidad Post-Limpieza
-
-- ✅ **0** IDs duplicados
-- ✅ **100%** fechas en formato estándar
-- ✅ **100%** tipos de datos consistentes
-- ✅ **100%** nombres de campos normalizados
-- ✅ **7** índices para optimización
-- ✅ **15,807** documentos procesados sin pérdida
-
----
-
-### 12. MANTENIMIENTO Y EVOLUCIÓN
-
-#### Estrategia de Versionado
-
-El campo `_metadata.version` permite:
-1. Identificar esquema de documentos
-2. Aplicar migraciones selectivas
-3. Soportar múltiples versiones simultáneamente
-4. Rollback controlado si es necesario
-
-#### Próximos Pasos Recomendados
-
-1. **Schema Validation**: Implementar JSON Schema para validar inserts
-2. **Triggers**: Automatizar cálculo de campos derivados
-3. **Archivado**: Mover facturas antiguas a colección histórica
-4. **Particionamiento**: Considerar sharding por año fiscal
-5. **Réplicas**: Configurar replica set para alta disponibilidad
-
----
-
-## Importación de Datos a MongoDB
-
-### Conversión a array de strings
-Problema: los JSON son múltiples objetos separados
-
-Solución: Convertir a formato válido
+**Solución**: Convertir a formato JSON array válido
 
 ```bash
 cd ~/ruta_a_los_datos/
 python3 convertir_json.py
 ```
 
-Este script creará una carpeta datafiles_converted/ con archivos JSON válidos listos para importar.
+Este script creará una carpeta `datafiles_converted/` con archivos JSON válidos listos para importar.
 
-### Importar en MongoDB Compass
-Utilizar mongoimport para importar todos los JSON convertidos a la vez
+### 2.2 Importar con mongoimport
+Utilizar mongoimport para importar todos los JSON convertidos:
 
 ```bash
 cd ~/ruta_a_los_datos/datafiles_converted/
@@ -811,28 +63,37 @@ for file in *.json; do
     mongoimport --db streamit_db --collection invoices --file "$file" --jsonArray
 done
 ```
-Salida:
+
+**Salida esperada**:
 ```bash
 Importando dump011_16.json...
 2025-10-30T15:21:48.811+0100	connected to: mongodb://localhost/
 2025-10-30T15:21:49.184+0100	1386 document(s) imported successfully. 0 document(s) failed to import.
-Importando dump01_16.json...
-2025-10-30T15:21:49.215+0100	connected to: mongodb://localhost/
-2025-10-30T15:21:49.586+0100	1226 document(s) imported successfully. 0 document(s) failed to import.
 Importando dump012_16.json...
+2025-10-30T15:21:49.215+0100	connected to: mongodb://localhost/
+2025-10-30T15:21:49.586+0100	1370 document(s) imported successfully. 0 document(s) failed to import.
 ...
 ```
 
-### Ejecutar limpieza en MondoDB Compass
+---
 
-Usar mongosh desde terminal o la shell de MongoDB Compass
+## 3. Limpieza y Normalización de Datos
+
+### Ejecutar Script de Limpieza
+
+Usar `mongosh` desde terminal o la shell de MongoDB Compass:
+
 ```bash
 # Cambiar a la base de datos
 use streamit_db
 
 # Copiar y pegar TODO el contenido del archivo PO22_05_07_1_limpieza.txt
 ```
-Al presionar ENTER se ejecutará el script y tendrá como salida:
+
+Al presionar ENTER se ejecutará el script completo.
+
+### Salida Esperada
+
 ```bash
 === INICIANDO LIMPIEZA DE FECHAS ===
 ✓ Campo 'charge date' normalizado a ISODate
@@ -885,33 +146,115 @@ Total de documentos en la colección: 15807
 === FIN DEL PROCESO DE LIMPIEZA ===
 ```
 
+### Transformaciones Realizadas
+
+1. **Normalización de Fechas**: Conversión a ISODate
+2. **Corrección de Tipos**: Surname a string, Total a double
+3. **camelCase**: Estandarización de nombres de campos
+4. **Limpieza de Strings**: Trim y lowercase en emails
+5. **Campos Calculados**: Edad, contentStats, metadatos
+6. **Índices**: 6 índices para optimización de consultas
+
 ---
 
-## Reestructuración del Modelo de Datos
+## 4. Reestructuración del Modelo de Datos
 
 ### Objetivo
-Transformar el modelo de datos desde una colección única de facturas con datos anidados redundantes hacia un **modelo normalizado** con tres colecciones especializadas:
 
-1. **movies**: Catálogo de películas (deduplica información de películas)
-2. **series**: Catálogo de series (deduplica información de series)
-3. **invoices_restructured**: Facturas simplificadas con referencias a movies y series
+Transformar el modelo desde una colección única con redundancia hacia un **modelo normalizado** con tres colecciones especializadas:
 
-### Justificación de la Reestructuración
+1. **movies**: Catálogo de películas (4,914 películas únicas)
+2. **series**: Catálogo de series (80 series únicas)
+3. **invoices_restructured**: Facturas con referencias a contenido
 
-#### Problemas del Modelo Original
-1. **Redundancia Masiva**: Los detalles de cada película/serie se repiten en cada factura
-2. **Desperdicio de Almacenamiento**: ~87.61 MB con información duplicada
-3. **Inconsistencias**: Misma película puede tener datos diferentes en distintas facturas
-4. **Dificultad de Análisis**: No se puede consultar el catálogo de contenido fácilmente
-5. **Escalabilidad Limitada**: Cada nueva factura aumenta el tamaño innecesariamente
+### Beneficios de la Reestructuración
 
-#### Beneficios del Modelo Normalizado
-1. **Eliminación de Redundancia**: 59.7% de reducción de almacenamiento (87.61 MB → 35.32 MB)
-2. **Consistencia de Datos**: Una sola versión de verdad para cada película/serie
-3. **Consultas Eficientes**: Índices especializados por tipo de colección
-4. **Análisis de Contenido**: Facilita estudios de popularidad, géneros, etc.
-5. **Escalabilidad**: Nuevo contenido no aumenta facturas existentes
-6. **Mantenibilidad**: Actualizar datos de una película afecta todas las referencias
+- ✅ **59.7% de reducción** de almacenamiento (87.61 MB → 35.32 MB)
+- ✅ **Eliminación de redundancia**: Datos de películas/series almacenados una sola vez
+- ✅ **Consistencia**: Una única versión de verdad por cada contenido
+- ✅ **Consultas eficientes**: Índices especializados por colección
+- ✅ **Análisis facilitado**: Catálogo separado para estudios de contenido
+- ✅ **Escalabilidad**: Nuevo contenido no aumenta facturas existentes
+
+### Ejecutar Script de Reestructuración
+
+```bash
+# Asegurarse de tener el script Python
+python3 PO22_05_07_2_reestructuracion.py
+```
+
+### Salida Esperada
+
+```bash
+================================================================================
+                      REESTRUCTURACIÓN DEL MODELO DE DATOS                      
+================================================================================
+
+🗑️  Limpiando colecciones destino...
+   ✓ Colecciones limpias
+
+🎬 PASO 1: EXTRAYENDO PELÍCULAS
+--------------------------------------------------------------------------------
+   Procesando factura 1000/11403...
+   Procesando factura 2000/11403...
+   ...
+
+✅ Películas únicas encontradas: 4914
+   Insertando en colección 'movies'...
+✅ 4914 películas insertadas
+
+📺 PASO 2: EXTRAYENDO SERIES Y TEMPORADAS
+--------------------------------------------------------------------------------
+   Procesando factura 1000/12671...
+   ...
+
+✅ Series únicas encontradas: 80
+   Insertando en colección 'series'...
+✅ 80 series insertadas
+
+🧾 PASO 3: REESTRUCTURANDO FACTURAS
+--------------------------------------------------------------------------------
+   Procesando factura 1000/15807...
+   ...
+
+✅ 15807 facturas reestructuradas
+
+🔍 PASO 4: CREANDO ÍNDICES
+--------------------------------------------------------------------------------
+   Creando índices en 'movies'...
+   ✓ 4 índices creados en 'movies'
+   Creando índices en 'series'...
+   ✓ 2 índices creados en 'series'
+   Creando índices en 'invoices_restructured'...
+   ✓ 7 índices creados en 'invoices_restructured'
+
+================================================================================
+                          RESUMEN DE REESTRUCTURACIÓN                           
+================================================================================
+
+💾 OPTIMIZACIÓN DE ALMACENAMIENTO:
+   • Tamaño original: 87.61 MB
+   • Tamaño nuevo: 35.32 MB
+   • Reducción: 59.7%
+
+📊 ESTADÍSTICAS:
+   • Películas únicas: 4,914
+   • Series únicas: 80
+   • Facturas reestructuradas: 15,807
+
+🎯 BENEFICIOS:
+   ✓ Eliminación de redundancia
+   ✓ Modelo normalizado y escalable
+   ✓ Consultas más eficientes
+   ✓ Facilita análisis de contenido
+   ✓ Preparado para métricas de consumo
+
+⏱️  Tiempo total: 10.49 segundos
+
+================================================================================
+                    REESTRUCTURACIÓN COMPLETADA EXITOSAMENTE                    
+================================================================================
+```
 
 ### Estructura del Nuevo Modelo
 
@@ -921,18 +264,36 @@ Transformar el modelo de datos desde una colección única de facturas con datos
   "_id": ObjectId("..."),
   "title": "The Shawshank Redemption",
   "details": {
-    "director": "Frank Darabont",
-    "cast": ["Tim Robbins", "Morgan Freeman"],
-    "genre": ["Drama"],
-    "keywords": ["prison", "friendship", "hope"],
-    "languages": ["English"],
+    "year": 1994,
     "country": "USA",
-    "rating": "9.3",
-    "income": 28341469,
-    "filmingLocations": ["Ohio Prison"],
-    "releaseDate": ISODate("1994-09-23")
+    "color": "Color",
+    "aspectRatio": 1.85,
+    "contentRating": "R",
+    "budget": 25000000,
+    "gross": 28341469,
+    "director": {
+      "name": "Frank Darabont",
+      "facebookLikes": 32000
+    },
+    "cast": {
+      "facebookLikes": 164000,
+      "stars": [
+        { "name": "Tim Robbins", "facebookLikes": 40000 },
+        { "name": "Morgan Freeman", "facebookLikes": 124000 }
+      ]
+    },
+    "language": "English",
+    "genres": ["Drama"],
+    "keywords": ["prison", "friendship", "hope"],
+    "facesInPoster": 2,
+    "imdbScore": 9.3,
+    "imdbLink": "http://www.imdb.com/title/tt0111161/",
+    "criticReviews": 88,
+    "userReviews": 1238,
+    "votedUsers": 1689764,
+    "facebookLikes": 93735,
+    "duration": 142
   },
-  "duration": 142,
   "_metadata": {
     "createdAt": ISODate("2024-10-30T..."),
     "version": "1.0"
@@ -966,7 +327,8 @@ Transformar el modelo de datos desde una colección única de facturas con datos
     "email": "john.doe@email.com",
     "phone": "+34600000000",
     "dni": "12345678A",
-    "birthDate": ISODate("1990-01-15")
+    "birthDate": ISODate("1990-01-15"),
+    "age": 34
   },
   "contract": {
     "contractId": "CNT001",
@@ -991,24 +353,35 @@ Transformar el modelo de datos desde una colección única de facturas con datos
   "chargeDate": ISODate("2017-05-03"),
   "dumpDate": ISODate("2016-10-14"),
   "total": 245.67,
+  "contentStats": {
+    "totalMovies": 5,
+    "totalSeries": 7,
+    "totalContent": 12
+  },
   "movies": [
     {
-      "movieId": ObjectId("..."),  // Referencia a colección movies
+      "movieId": ObjectId("..."),
       "date": ISODate("2016-11-15"),
-      "time": ISODate("1900-01-01T20:30:00"),
+      "time": "20:30",
       "viewingPct": 0.85,
-      "license": "Standard"
+      "license": {
+        "type": "Standard",
+        "cost": 0.0
+      }
     }
   ],
   "series": [
     {
-      "seriesId": ObjectId("..."),  // Referencia a colección series
+      "seriesId": ObjectId("..."),
       "season": 3,
       "episode": 7,
       "date": ISODate("2016-11-20"),
-      "time": ISODate("1900-01-01T21:00:00"),
+      "time": "21:00",
       "viewingPct": 1.0,
-      "license": "Premium"
+      "license": {
+        "type": "Premium",
+        "cost": 0.0
+      }
     }
   ],
   "_metadata": {
@@ -1018,230 +391,465 @@ Transformar el modelo de datos desde una colección única de facturas con datos
 }
 ```
 
-### Índices Creados en las Nuevas Colecciones
+### Índices Creados
 
-#### Movies (3 índices)
-```javascript
-// Búsqueda por título (único)
-db.movies.createIndex({ "title": 1 }, { unique: true })
-
-// Filtrado por género
-db.movies.createIndex({ "details.genre": 1 })
-
-// Ordenamiento por fecha de estreno
-db.movies.createIndex({ "details.releaseDate": 1 })
-```
+#### Movies (4 índices)
+- `title` (único): Búsqueda por título
+- `details.genres`: Filtrado por género
+- `details.year`: Ordenamiento por año
+- `details.director.name`: Búsqueda por director
 
 #### Series (2 índices)
-```javascript
-// Búsqueda por título (único)
-db.series.createIndex({ "title": 1 }, { unique: true })
-
-// Filtrado por número de temporadas
-db.series.createIndex({ "totalSeasons": 1 })
-```
+- `title` (único): Búsqueda por título
+- `totalSeasons`: Filtrado por número de temporadas
 
 #### Invoices Restructured (7 índices)
-```javascript
-// Búsqueda por cliente
-db.invoices_restructured.createIndex({ "client.customerCode": 1 })
+- `client.customerCode`: Búsqueda por cliente
+- `contract.contractId`: Búsqueda por contrato
+- `chargeDate`: Consultas temporales
+- `billing`: Agrupaciones por período
+- `movies.movieId`: Análisis de películas consumidas
+- `series.seriesId`: Análisis de series consumidas
+- `[client.customerCode, chargeDate]`: Consultas combinadas (compuesto)
 
-// Búsqueda por contrato
-db.invoices_restructured.createIndex({ "contract.contractId": 1 })
+---
 
-// Consultas temporales
-db.invoices_restructured.createIndex({ "chargeDate": 1 })
+## 5. Verificación en MongoDB Compass
 
-// Agrupaciones por período
-db.invoices_restructured.createIndex({ "billing": 1 })
+Después de completar la reestructuración, verificar en MongoDB Compass:
 
-// Análisis de películas consumidas
-db.invoices_restructured.createIndex({ "movies.movieId": 1 })
+1. **Base de datos**: `streamit_db`
+2. **Colecciones**:
+   - `invoices` (original): 15,807 documentos
+   - `movies`: 4,914 documentos
+   - `series`: 80 documentos
+   - `invoices_restructured`: 15,807 documentos
 
-// Análisis de series consumidas
-db.invoices_restructured.createIndex({ "series.seriesId": 1 })
+---
 
-// Consultas combinadas cliente-fecha
-db.invoices_restructured.createIndex({ "client.customerCode": 1, "chargeDate": 1 })
-```
+## 6. Validación de Esquemas (Schema Validation)
 
-### Proceso de Reestructuración
+### Objetivo
 
-#### 1. Preparación del Script
+Implementar **JSON Schema Validation** en MongoDB para garantizar la integridad y consistencia de los datos en las tres colecciones del modelo normalizado. Esta capa de validación actúa como firewall de datos, rechazando automáticamente inserciones o actualizaciones que no cumplan con las reglas de negocio establecidas.
 
-El script `PO22_05_07_2_reestructuracion.txt` contiene código Python que:
-- Se conecta a MongoDB
-- Lee de la colección `invoices` (ya limpia)
-- Extrae y deduplica películas y series
-- Crea referencias desde facturas a contenido
-- Genera las nuevas colecciones
+### Beneficios de la Validación
 
-#### 2. Ejecución del Script
+- ✅ **Integridad de Datos**: Garantiza que todos los documentos cumplan con el formato esperado
+- ✅ **Prevención de Errores**: Detecta problemas antes de que lleguen a la base de datos
+- ✅ **Documentación Viva**: El esquema sirve como documentación técnica actualizada
+- ✅ **Validación Automática**: Sin necesidad de validación manual en código de aplicación
+- ✅ **Mensajes Descriptivos**: Errores claros que facilitan la depuración
+- ✅ **Restricciones de Negocio**: Implementa reglas como "edad mínima 18 años"
 
-```bash
-# Copiar el archivo .txt a .py para ejecución
-cp PO22_05_07_2_reestructuracion.txt PO22_05_07_2_reestructuracion.py
+### Ejecutar Script de Validación
 
-# Ejecutar el script de reestructuración
-python3 PO22_05_07_2_reestructuracion.py
-```
-
-#### 3. Salida Esperada
+Usar `mongosh` desde terminal o la shell de MongoDB Compass:
 
 ```bash
-================================================================================
-                      REESTRUCTURACIÓN DEL MODELO DE DATOS                      
-================================================================================
+# Cambiar a la base de datos
+use streamit_db
 
-
-🗑️  Limpiando colecciones destino...
-   ✓ Colecciones limpias
-
-
-📽️  PASO 1: EXTRAYENDO PELÍCULAS
---------------------------------------------------------------------------------
-   Procesando factura 1000/11403...
-   Procesando factura 2000/11403...
-   Procesando factura 3000/11403...
-   ...
-   Procesando factura 11000/11403...
-
-✅ Películas únicas encontradas: 4914
-   Insertando en colección 'movies'...
-✅ 4914 películas insertadas
-
-📺 PASO 2: EXTRAYENDO SERIES Y TEMPORADAS
---------------------------------------------------------------------------------
-   Procesando factura 1000/12671...
-   Procesando factura 2000/12671...
-   ...
-   Procesando factura 12000/12671...
-
-✅ Series únicas encontradas: 80
-   Insertando en colección 'series'...
-✅ 80 series insertadas
-
-🧾 PASO 3: REESTRUCTURANDO FACTURAS
---------------------------------------------------------------------------------
-   Procesando factura 1000/15807...
-   Procesando factura 2000/15807...
-   ...
-   Procesando factura 15000/15807...
-
-✅ 15807 facturas reestructuradas
-
-🔍 PASO 4: CREANDO ÍNDICES
---------------------------------------------------------------------------------
-   Creando índices en 'movies'...
-   ✓ 3 índices creados en 'movies'
-   Creando índices en 'series'...
-   ✓ 2 índices creados en 'series'
-   Creando índices en 'invoices_restructured'...
-   ✓ 7 índices creados en 'invoices_restructured'
-
-✔️  PASO 5: VALIDACIÓN
---------------------------------------------------------------------------------
-   Películas únicas: 4914
-   Series únicas: 80
-   Facturas reestructuradas: 15807
-   Facturas originales: 15807
-
-   ✅ Validación exitosa: Todas las facturas fueron procesadas
-   ✅ Referencias a películas verificadas
-
-================================================================================
-                          RESUMEN DE REESTRUCTURACIÓN                           
-================================================================================
-
-📊 ESTADÍSTICAS:
-   • Películas únicas: 4,914
-   • Series únicas: 80
-   • Facturas reestructuradas: 15,807
-
-💾 OPTIMIZACIÓN DE ALMACENAMIENTO:
-   • Tamaño original: 87.61 MB
-   • Tamaño nuevo: 35.32 MB
-   • Reducción: 59.7%
-
-🎯 BENEFICIOS:
-   ✓ Eliminación de redundancia
-   ✓ Modelo normalizado y escalable
-   ✓ Consultas más eficientes
-   ✓ Facilita análisis de contenido
-   ✓ Preparado para métricas de consumo
-
-⏱️  Tiempo total: 10.49 segundos
-
-================================================================================
-                    REESTRUCTURACIÓN COMPLETADA EXITOSAMENTE                    
-================================================================================
+# Copiar y pegar TODO el contenido del archivo PO22_05_07_3_schema_validation.txt
 ```
 
-### Verificación en MongoDB Compass
+### Salida Esperada
 
-Después de ejecutar el script, puedes verificar en MongoDB Compass:
+```bash
+================================================================================
+             IMPLEMENTACIÓN DE ESQUEMAS DE VALIDACIÓN - STREAMIT DB
+================================================================================
 
-1. **Colección movies**: 4,914 documentos
-2. **Colección series**: 80 documentos
-3. **Colección invoices_restructured**: 15,807 documentos
+📽️  PASO 1: Creando esquema de validación para 'movies'...
 
-### Ejemplos de Consultas en el Nuevo Modelo
+✅ Esquema de 'movies' aplicado correctamente
+   • Título obligatorio y único
+   • Año entre 1888-2030
+   • Duración 1-600 minutos
+   • IMDB score 0-10
+   • Géneros únicos (máx. 10)
+   • Validación estricta de tipos
 
-#### Consultar catálogo de películas por género
-```javascript
-db.movies.find({ "details.genre": "Action" })
+📺 PASO 2: Creando esquema de validación para 'series'...
+
+✅ Esquema de 'series' aplicado correctamente
+   • Título obligatorio y único
+   • 1-100 temporadas
+   • 1-10000 episodios totales
+   • Duración promedio 1-600 minutos
+   • Validación estricta de tipos
+
+🧾 PASO 3: Creando esquema de validación para 'invoices_restructured'...
+
+✅ Esquema de 'invoices_restructured' aplicado correctamente
+   • Código cliente: 2 letras + 6 dígitos
+   • DNI español: 8 dígitos + letra
+   • Email en minúsculas
+   • Edad 18-120 años
+   • Referencias a movies y series
+   • Viewing % entre 0-100
+   • Validación estricta de tipos
+
+🔐 PASO 4: Aplicando restricciones de unicidad...
+
+✅ Índice único en 'movies.title'
+✅ Índice único en 'series.title'
+✅ Índice único en 'customer + billing'
+
+================================================================================
+                            PRUEBAS DE VALIDACIÓN
+================================================================================
+
+🧪 Ejecutando pruebas de validación...
+
+Test 1: Película con año inválido (1800)...
+✅ ÉXITO: Año inválido rechazado correctamente
+Test 2: Serie con 0 temporadas...
+✅ ÉXITO: 0 temporadas rechazado correctamente
+Test 3: Factura con email inválido...
+✅ ÉXITO: Email inválido rechazado correctamente
+Test 4: Factura con viewingPct > 100...
+✅ ÉXITO: viewingPct > 100 rechazado correctamente
+Test 5: Cliente con edad menor de 18 años...
+✅ ÉXITO: Edad < 18 rechazada correctamente
+
+================================================================================
+                          RESUMEN DE IMPLEMENTACIÓN
+================================================================================
+
+📋 ESQUEMAS APLICADOS:
+   ✅ movies: ACTIVO
+   ✅ series: ACTIVO
+   ✅ invoices_restructured: ACTIVO
+
+🔐 RESTRICCIONES DE UNICIDAD:
+   ✅ movies.title (único)
+   ✅ series.title (único)
+   ✅ customer + billing (combinación única)
+
+🧪 RESULTADOS DE PRUEBAS:
+   ✅ Pruebas exitosas: 5
+   ❌ Pruebas fallidas: 0
+   📊 Total: 5
+
+✨ REGLAS DE CONSISTENCIA IMPLEMENTADAS:
+   • Películas:
+     - Título obligatorio (1-200 caracteres)
+     - Año entre 1888-2030
+     - Duración 1-600 minutos
+     - IMDB score 0-10
+     - Géneros únicos (máximo 10)
+     - Validación de enlaces IMDB
+
+   • Series:
+     - Título obligatorio (1-200 caracteres)
+     - 1-100 temporadas
+     - 1-10000 episodios totales
+     - Duración promedio 1-600 minutos
+
+   • Facturas:
+     - Código cliente: formato AB123456
+     - DNI español: 8 dígitos + letra
+     - Email válido en minúsculas
+     - Edad 18-120 años
+     - Viewing % entre 0-100
+     - Referencias válidas a movies/series
+     - Fechas coherentes (birthDate < hoy)
+     - Productos con tipos válidos
+     - Importes >= 0
+
+⚙️  CONFIGURACIÓN:
+   • Validation Level: STRICT
+   • Validation Action: ERROR
+   • Additional Properties: FALSE
+
+================================================================================
+              ✅ ESQUEMAS DE VALIDACIÓN IMPLEMENTADOS EXITOSAMENTE
+================================================================================
+
+📊 ESTADÍSTICAS DE COLECCIONES:
+   • movies: 4,914 documentos
+   • series: 80 documentos
+   • invoices_restructured: 15,807 documentos
 ```
 
-#### Obtener una factura con datos completos de películas
+### Reglas de Validación por Colección
+
+#### 📽️ Movies
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `title` | string | 1-200 caracteres, único | Título de la película |
+| `details.year` | int | 1888-2030 | Año de producción |
+| `details.duration` | int | 1-600 minutos | Duración de la película |
+| `details.imdbScore` | double | 0-10 | Puntuación IMDB |
+| `details.genres` | array | Máx. 10, únicos | Géneros de la película |
+| `details.budget` | decimal | >= 0 | Presupuesto en dólares |
+| `details.gross` | decimal | >= 0 | Recaudación bruta |
+| `details.imdbLink` | string | Patrón IMDB válido | Enlace a IMDB |
+| `details.director.name` | string | Máx. 150 caracteres | Nombre del director |
+| `details.cast.stars` | array | Máx. 50 actores | Lista de actores principales |
+
+#### 📺 Series
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `title` | string | 1-200 caracteres, único | Título de la serie |
+| `totalSeasons` | int | 1-100 | Número total de temporadas |
+| `totalEpisodes` | int | 1-10000 | Número total de episodios |
+| `avgDuration` | int | 1-600 minutos | Duración promedio por episodio |
+
+#### 🧾 Invoices Restructured
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `client.customerCode` | string | Patrón: `[A-Z]{2}[0-9]{6}` | Código cliente (ej: AB123456) |
+| `client.email` | string | Patrón email válido, lowercase | Email del cliente |
+| `client.dni` | string | Patrón: `[0-9]{8}[A-Z]` | DNI español (ej: 12345678A) |
+| `client.phone` | long | 9-12 dígitos | Teléfono del cliente |
+| `client.age` | int | 18-120 años | Edad del cliente |
+| `client.birthDate` | date | Fecha en el pasado | Fecha de nacimiento |
+| `contract.contractId` | string | Patrón: `C[0-9]{8}` | ID de contrato (ej: C12345678) |
+| `contract.product.reference` | string | Formato: `TIPO-MODALIDAD` | Referencia del producto |
+| `contract.product.type` | string | Enum: BASIC, STANDARD, PREMIUM, ENTERPRISE | Tipo de producto |
+| `movies[].viewingPct` | int/double | 0-100 | Porcentaje visto |
+| `series[].season` | int | >= 1 | Número de temporada |
+| `series[].episode` | int | >= 1 | Número de episodio |
+| `total` | decimal | >= 0 | Total de la factura |
+
+### Patrones de Validación Implementados
+
+#### Formato de Código de Cliente
+```regex
+^[A-Z]{2}[0-9]{6}$
+```
+- 2 letras mayúsculas
+- 6 dígitos numéricos
+- Ejemplo válido: `AB123456`
+- Ejemplo inválido: `ab123456`, `ABC123456`, `A123456`
+
+#### Formato de DNI Español
+```regex
+^[0-9]{8}[A-Z]$
+```
+- 8 dígitos numéricos
+- 1 letra mayúscula
+- Ejemplo válido: `12345678A`
+- Ejemplo inválido: `1234567A`, `12345678a`, `12345678AB`
+
+#### Formato de Email
+```regex
+^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$
+```
+- Debe contener @
+- Dominio válido con TLD
+- Todo en minúsculas
+- Ejemplo válido: `user@example.com`
+- Ejemplo inválido: `User@Example.com`, `userexample.com`
+
+#### Formato de ID de Contrato
+```regex
+^C[0-9]{8}$
+```
+- Comienza con 'C'
+- 8 dígitos numéricos
+- Ejemplo válido: `C12345678`
+- Ejemplo inválido: `12345678`, `c12345678`, `C1234567`
+
+#### Formato de Hora
+```regex
+^([0-1][0-9]|2[0-3]):[0-5][0-9]$
+```
+- Formato 24 horas: HH:MM
+- Ejemplo válido: `14:30`, `09:15`
+- Ejemplo inválido: `25:00`, `14:70`, `2:30`
+
+#### Formato de Referencia de Producto
+```regex
+^(BASIC|STANDARD|PREMIUM|ENTERPRISE)-(MONTHLY|DAILY|PPM|PPC)$
+```
+- Tipo: BASIC, STANDARD, PREMIUM, ENTERPRISE
+- Modalidad: MONTHLY, DAILY, PPM (Pay Per Minute), PPC (Pay Per Content)
+- Ejemplo válido: `PREMIUM-MONTHLY`, `BASIC-DAILY`
+- Ejemplo inválido: `premium-monthly`, `BASIC`, `STANDARD-YEARLY`
+
+### Restricciones de Unicidad
+
+#### Índices Únicos Simples
+1. **movies.title**: Evita películas duplicadas
+2. **series.title**: Evita series duplicadas
+
+#### Índice Único Compuesto
+**invoices_restructured**: `[client.customerCode, billing]`
+- Garantiza que un cliente solo tenga una factura por período de facturación
+- Previene duplicación de facturas para el mismo cliente en el mismo mes
+
+### Configuración de Validación
+
+| Parámetro | Valor | Descripción |
+|-----------|-------|-------------|
+| `validationLevel` | `strict` | Aplica validación a todos los inserts y updates |
+| `validationAction` | `error` | Rechaza documentos inválidos con error |
+| `additionalProperties` | `false` | No permite campos no definidos en el esquema |
+
+### Pruebas de Validación Incluidas
+
+El script ejecuta automáticamente 5 pruebas para verificar que las validaciones funcionan correctamente:
+
+1. ✅ **Película con año inválido (1800)**: Rechazado (año < 1888)
+2. ✅ **Serie con 0 temporadas**: Rechazado (mínimo 1)
+3. ✅ **Factura con email sin @**: Rechazado (patrón inválido)
+4. ✅ **Factura con viewingPct > 100**: Rechazado (máximo 100)
+5. ✅ **Cliente con edad < 18**: Rechazado (mínimo 18 años)
+
+### Ejemplos de Validación
+
+#### ✅ Inserción Válida - Película
 ```javascript
-db.invoices_restructured.aggregate([
-  { $match: { "client.customerCode": "CUST001" } },
-  { $unwind: "$movies" },
-  { $lookup: {
-      from: "movies",
-      localField: "movies.movieId",
-      foreignField: "_id",
-      as: "movieDetails"
-  }},
-  { $unwind: "$movieDetails" }
-])
+db.movies.insertOne({
+  title: "Inception",
+  details: {
+    year: 2010,
+    duration: 148,
+    country: "USA",
+    imdbScore: 8.8,
+    genres: ["Action", "Sci-Fi", "Thriller"],
+    director: {
+      name: "Christopher Nolan",
+      facebookLikes: 50000
+    }
+  },
+  _metadata: {
+    createdAt: new Date(),
+    version: "1.0"
+  }
+});
 ```
 
-#### Top 10 películas más vistas
+#### ❌ Inserción Inválida - Película
 ```javascript
-db.invoices_restructured.aggregate([
-  { $unwind: "$movies" },
-  { $group: {
-      _id: "$movies.movieId",
-      totalViews: { $sum: 1 },
-      avgViewingPct: { $avg: "$movies.viewingPct" }
-  }},
-  { $sort: { totalViews: -1 } },
-  { $limit: 10 },
-  { $lookup: {
-      from: "movies",
-      localField: "_id",
-      foreignField: "_id",
-      as: "movie"
-  }}
-])
+db.movies.insertOne({
+  title: "Old Movie",
+  details: {
+    year: 1800,  // ❌ Error: año < 1888
+    duration: 90
+  }
+});
+
+// Error retornado:
+// Document failed validation
+// year: must be >= 1888
 ```
 
-#### Clientes que más contenido consumen
+#### ✅ Inserción Válida - Factura
 ```javascript
-db.invoices_restructured.aggregate([
-  { $group: {
-      _id: "$client.customerCode",
-      totalMovies: { $sum: { $size: "$movies" } },
-      totalSeries: { $sum: { $size: "$series" } },
-      totalContent: { $sum: { $add: [
-          { $size: "$movies" },
-          { $size: "$series" }
-      ]}}
-  }},
-  { $sort: { totalContent: -1 } },
-  { $limit: 10 }
-])
+db.invoices_restructured.insertOne({
+  client: {
+    customerCode: "AB123456",
+    name: "John",
+    surname: "Doe",
+    email: "john.doe@example.com",
+    phone: NumberLong("600123456"),
+    dni: "12345678A",
+    birthDate: new Date("1990-01-15"),
+    age: 34
+  },
+  contract: {
+    contractId: "C12345678",
+    startDate: new Date("2024-01-01"),
+    product: {
+      reference: "PREMIUM-MONTHLY",
+      type: "PREMIUM"
+    }
+  },
+  billing: new Date("2024-11-01"),
+  chargeDate: new Date("2024-11-05"),
+  dumpDate: new Date("2024-11-01"),
+  total: NumberDecimal("19.99"),
+  _metadata: {
+    restructuredAt: new Date(),
+    version: "2.0"
+  }
+});
+```
+
+#### ❌ Inserción Inválida - Factura
+```javascript
+db.invoices_restructured.insertOne({
+  client: {
+    customerCode: "abc123",  // ❌ Error: debe ser AB123456
+    email: "invalid.email",  // ❌ Error: sin @
+    dni: "1234567A",         // ❌ Error: solo 7 dígitos
+    age: 16                  // ❌ Error: menor de 18
+  },
+  // ... resto de campos
+});
+
+// Errores retornados:
+// customerCode: must match pattern ^[A-Z]{2}[0-9]{6}$
+// email: must match email pattern
+// dni: must match pattern ^[0-9]{8}[A-Z]$
+// age: must be >= 18
+```
+
+### Verificación de Esquemas
+
+#### Ver esquema de una colección
+```javascript
+db.getCollectionInfos({name: "movies"})[0].options.validator;
+```
+
+#### Listar colecciones con validación activa
+```javascript
+db.getCollectionInfos().forEach(function(coll) {
+  if (coll.options.validator) {
+    print(coll.name + " tiene validación activa");
+  }
+});
+```
+
+#### Ver nivel de validación
+```javascript
+db.getCollectionInfos({name: "movies"})[0].options.validationLevel;
+// Retorna: "strict"
+```
+
+### Mantenimiento de Esquemas
+
+#### Desactivar validación temporalmente
+```javascript
+db.runCommand({
+  collMod: "movies",
+  validationLevel: "off"
+});
+```
+
+#### Reactivar validación
+```javascript
+db.runCommand({
+  collMod: "movies",
+  validationLevel: "strict"
+});
+```
+
+#### Modificar esquema existente
+```javascript
+db.runCommand({
+  collMod: "movies",
+  validator: {
+    $jsonSchema: {
+      // Nuevo esquema actualizado
+    }
+  }
+});
+```
+
+#### Eliminar validación completamente
+```javascript
+db.runCommand({
+  collMod: "movies",
+  validator: {}
+});
 ```
 
 ---
