@@ -1,0 +1,513 @@
+#!/usr/bin/env python3
+"""
+Script de Reestructuración del Modelo de Datos (VERSIÓN 2.2)
+
+- Deduplicación de películas por (title|year) si year existe
+- Lectura robusta de claves: acepta 'title'/'Title', 'details'/'Details', etc.
+- No se guarda details.year cuando no exista, para facilitar índice parcial
+- viewingPct, zapping y promotion como enteros
+- dateTime en cada consumo a partir de date+time
+- Índices ajustados para versiones de MongoDB sin $ne en partialFilterExpression
+"""
+
+from pymongo import MongoClient, ASCENDING
+from bson import Decimal128
+from datetime import datetime, timezone
+
+# Configuración
+MONGO_URI = "mongodb://localhost:27017/"
+DATABASE_NAME = "streamit_db"
+SOURCE_COLLECTION = "invoices"
+MOVIES_COLLECTION = "movies"
+SERIES_COLLECTION = "series"
+INVOICES_COLLECTION = "invoices_restructured"
+
+
+class DataRestructurer:
+    def __init__(self):
+        self.client = MongoClient(MONGO_URI)
+        self.db = self.client[DATABASE_NAME]
+        self.invoices_source = self.db[SOURCE_COLLECTION]
+        self.movies_collection = self.db[MOVIES_COLLECTION]
+        self.series_collection = self.db[SERIES_COLLECTION]
+        self.invoices_new = self.db[INVOICES_COLLECTION]
+
+        self.movies_map = {}
+        self.series_map = {}
+
+        print("=" * 80)
+        print("REESTRUCTURACIÓN DEL MODELO DE DATOS".center(80))
+        print("=" * 80)
+        print()
+
+    @staticmethod
+    def g(obj, *keys):
+        """Devuelve el primer valor no vacío para cualquiera de las keys dadas."""
+        if not isinstance(obj, dict):
+            return None
+        for k in keys:
+            v = obj.get(k)
+            if v is not None and v != "":
+                return v
+        return None
+
+    @staticmethod
+    def normalize_string(text):
+        if text is None:
+            return ""
+        s = str(text).strip()
+        if not s:
+            return ""
+        return " ".join(w.capitalize() for w in s.split())
+
+    @staticmethod
+    def to_int(value, default=0):
+        try:
+            if value is None:
+                return default
+            if isinstance(value, Decimal128):
+                return int(value.to_decimal())
+            return int(value)
+        except Exception:
+            return default
+
+    @staticmethod
+    def to_float(value, default=0.0):
+        try:
+            if value is None:
+                return default
+            if isinstance(value, Decimal128):
+                return float(value.to_decimal())
+            return float(value)
+        except Exception:
+            return default
+
+    @staticmethod
+    def combine_dt(d, t):
+        """Combina un datetime de fecha 'd' con un string 'HH:MM[:SS]'."""
+        try:
+            if isinstance(d, datetime) and isinstance(t, str) and len(t) >= 4:
+                parts = t.split(":")
+                hh = int(parts[0])
+                mm = int(parts[1]) if len(parts) > 1 else 0
+                ss = int(parts[2]) if len(parts) > 2 else 0
+                # Preserva tzinfo si la hubiera en d
+                return datetime(d.year, d.month, d.day, hh, mm, ss, tzinfo=d.tzinfo)
+        except Exception:
+            pass
+        return d if isinstance(d, datetime) else None
+
+    def extract_movies(self):
+        print("PASO 1: EXTRAYENDO PELÍCULAS")
+        print("-" * 80)
+
+        movies_dict = {}
+        cur = self.invoices_source.find({"Movies": {"$exists": True, "$ne": []}})
+        total = self.invoices_source.count_documents({"Movies": {"$exists": True, "$ne": []}})
+
+        processed = 0
+        skipped_no_title = 0
+
+        for inv in cur:
+            processed += 1
+            if processed % 1000 == 0:
+                print(f"   Procesando factura {processed}/{total}...")
+
+            for m in inv.get("Movies", []):
+                # Acepta 'title' o 'Title'
+                title_raw = self.g(m, "title", "Title")
+                title = self.normalize_string(title_raw)
+                if not title:
+                    skipped_no_title += 1
+                    continue
+
+                # Acepta 'details' o 'Details'
+                details = self.g(m, "details", "Details") or {}
+                # Acepta 'year' o 'Year'
+                year_val = self.g(details, "year", "Year")
+                year = self.to_int(year_val, 0)
+
+                # Clave de deduplicación
+                movie_key = f"{title.lower()}|{year}" if year > 0 else title.lower()
+                if movie_key in movies_dict:
+                    continue
+
+                # Director
+                director_block = self.g(details, "director", "Director") or {}
+                director_name = ""
+                director_fb = 0
+                if isinstance(director_block, dict):
+                    director_name = self.normalize_string(self.g(director_block, "name", "Name") or "")
+                    director_fb = self.to_int(self.g(director_block, "facebookLikes", "Facebook likes"), 0)
+                elif isinstance(director_block, str):
+                    director_name = self.normalize_string(director_block)
+
+                # Cast
+                cast_block = self.g(details, "cast", "Cast") or {}
+                cast_fb = 0
+                stars_out = []
+                if isinstance(cast_block, dict):
+                    cast_fb = self.to_int(self.g(cast_block, "facebookLikes", "Facebook likes"), 0)
+                    stars_in = self.g(cast_block, "stars", "Stars") or []
+                    if isinstance(stars_in, list):
+                        for st in stars_in:
+                            if isinstance(st, dict):
+                                nm = self.normalize_string(self.g(st, "player", "Player") or "")
+                                fb = self.to_int(self.g(st, "facebookLikes", "Facebook likes"), 0)
+                                if nm:
+                                    stars_out.append({"name": nm, "facebookLikes": fb})
+
+                genres = self.g(details, "genres", "Genres") or []
+                if isinstance(genres, list):
+                    genres = [self.normalize_string(g) for g in genres if g]
+
+                keywords = self.g(details, "keywords", "Keywords") or []
+                if isinstance(keywords, list):
+                    keywords = [self.normalize_string(k) for k in keywords if k]
+
+                # Construcción de details con año solo si existe
+                details_out = {
+                    "country": self.normalize_string(self.g(details, "country", "Country") or ""),
+                    "color": self.g(details, "color", "Color") or "",
+                    "aspectRatio": self.to_float(self.g(details, "aspectRatio", "Aspect ratio"), 0.0),
+                    "contentRating": self.g(details, "contentRating", "Content Rating") or "",
+                    "budget": self.g(details, "budget", "Budget") or Decimal128("0"),
+                    "gross": self.g(details, "gross", "Gross") or Decimal128("0"),
+                    "language": self.g(details, "language", "Language") or "",
+                    "duration": self.to_int(self.g(details, "duration", "Duration"), 0),
+                    "imdbScore": self.to_float(self.g(details, "imdbScore", "IMDB score"), 0.0),
+                    "imdbLink": self.g(details, "imdbLink", "IMDB link") or "",
+                    "criticReviews": self.to_int(self.g(details, "criticReviews", "Critic reviews"), 0),
+                    "userReviews": self.to_int(self.g(details, "userReviews", "User reviews"), 0),
+                    "votedUsers": self.to_int(self.g(details, "votedUsers", "Voted users"), 0),
+                    "facebookLikes": self.to_int(self.g(details, "facebookLikes", "Facebook likes"), 0),
+                    "facesInPoster": self.to_int(self.g(details, "facesInPoster", "Faces in poster"), 0),
+                    "genres": genres,
+                    "keywords": keywords,
+                    "director": {
+                        "name": director_name,
+                        "facebookLikes": director_fb
+                    },
+                    "cast": {
+                        "facebookLikes": cast_fb,
+                        "stars": stars_out
+                    }
+                }
+                if year > 0:
+                    details_out["year"] = year  # solo si hay año
+
+                movie_doc = {
+                    "title": title,
+                    "details": details_out,
+                    "_metadata": {
+                        "createdAt": datetime.now(timezone.utc),
+                        "version": "1.0"
+                    }
+                }
+
+                movies_dict[movie_key] = movie_doc
+
+        print(f"\nPelículas únicas encontradas: {len(movies_dict)}")
+        if skipped_no_title > 0:
+            print(f"   Aviso: elementos Movies saltados por no traer título: {skipped_no_title}")
+
+        if movies_dict:
+            print("Insertando en 'movies'...")
+            items = list(movies_dict.items())
+            payload = [doc for _, doc in items]
+            keys = [key for key, _ in items]
+            result = self.movies_collection.insert_many(payload)
+            self.movies_map = {keys[i]: result.inserted_ids[i] for i in range(len(keys))}
+            print(f"Insertadas: {len(result.inserted_ids)}")
+
+        return len(movies_dict)
+
+    def extract_series(self):
+        print("\nPASO 2: EXTRAYENDO SERIES")
+        print("-" * 80)
+
+        series_dict = {}
+        cur = self.invoices_source.find({"Series": {"$exists": True, "$ne": []}})
+        total = self.invoices_source.count_documents({"Series": {"$exists": True, "$ne": []}})
+
+        processed = 0
+        skipped_no_title = 0
+
+        for inv in cur:
+            processed += 1
+            if processed % 1000 == 0:
+                print(f"   Procesando factura {processed}/{total}...")
+
+            for s in inv.get("Series", []):
+                title_raw = self.g(s, "title", "Title")
+                title = self.normalize_string(title_raw)
+                if not title:
+                    skipped_no_title += 1
+                    continue
+
+                series_key = title.lower()
+                if series_key in series_dict:
+                    continue
+
+                totalSeasons = self.to_int(self.g(s, "totalSeasons", "Total Seasons"), 0)
+                totalEpisodes = self.to_int(self.g(s, "totalEpisodes", "Total Episodes"), 0)
+                avgDuration = self.to_int(self.g(s, "avgDuration", "Avg duration"), 0)
+
+                series_dict[series_key] = {
+                    "title": title,
+                    "totalSeasons": totalSeasons,
+                    "totalEpisodes": totalEpisodes,
+                    "avgDuration": avgDuration,
+                    "_metadata": {
+                        "createdAt": datetime.now(timezone.utc),
+                        "version": "1.0"
+                    }
+                }
+
+        print(f"\nSeries únicas encontradas: {len(series_dict)}")
+        if skipped_no_title > 0:
+            print(f"   Aviso: elementos Series saltados por no traer título: {skipped_no_title}")
+
+        if series_dict:
+            print("Insertando en 'series'...")
+            items = list(series_dict.items())
+            payload = [doc for _, doc in items]
+            keys = [key for key, _ in items]
+            result = self.series_collection.insert_many(payload)
+            self.series_map = {keys[i]: result.inserted_ids[i] for i in range(len(keys))}
+            print(f"Insertadas: {len(result.inserted_ids)}")
+
+        return len(series_dict)
+
+    def restructure_invoices(self):
+        print("\nPASO 3: REESTRUCTURANDO FACTURAS")
+        print("-" * 80)
+
+        cur = self.invoices_source.find()
+        total = self.invoices_source.count_documents({})
+
+        batch, batch_size = [], 500
+        processed = 0
+
+        for inv in cur:
+            processed += 1
+            if processed % 1000 == 0:
+                print(f"   Procesando factura {processed}/{total}...")
+
+            client = inv.get("Client", {}) or {}
+            contract = inv.get("contract", {}) or {}
+            product = contract.get("product", {}) or {}
+
+            new_invoice = {
+                "_id": inv["_id"],
+                "client": {
+                    "customerCode": client.get("customerCode"),
+                    "name": client.get("name"),
+                    "surname": client.get("surname"),
+                    "email": client.get("email"),
+                    "phone": client.get("phone"),
+                    "dni": client.get("dni"),
+                    "birthDate": client.get("birthDate"),
+                    "age": client.get("age")
+                },
+                "contract": {
+                    "contractId": contract.get("contractId"),
+                    "startDate": contract.get("startDate"),
+                    "endDate": contract.get("endDate"),
+                    "address": contract.get("address"),
+                    "zip": contract.get("zip"),
+                    "town": contract.get("town"),
+                    "country": contract.get("country"),
+                    "product": {
+                        "reference": product.get("reference"),
+                        "type": product.get("type"),
+                        "monthlyFee": product.get("monthlyFee"),
+                        "costPerDay": product.get("costPerDay"),
+                        "costPerMinute": product.get("costPerMinute"),
+                        "costPerContent": product.get("costPerContent"),
+                        "zapping": self.to_int(self.g(product, "zapping", "Zapping"), 0),
+                        "promotion": self.to_int(self.g(product, "promotion", "Promotion"), 0)
+                    }
+                },
+                "billing": inv.get("billing"),
+                "chargeDate": inv.get("chargeDate"),
+                "dumpDate": inv.get("dumpDate"),
+                "total": inv.get("total"),
+                "contentStats": inv.get("contentStats", {}),
+                "movies": [],
+                "series": [],
+                "_metadata": {
+                    "restructuredAt": datetime.now(timezone.utc),
+                    "version": "2.2"
+                }
+            }
+
+            # Movies referenciadas
+            for m in inv.get("Movies", []) or []:
+                title_raw = self.g(m, "title", "Title")
+                title = self.normalize_string(title_raw)
+                if not title:
+                    continue
+
+                details = self.g(m, "details", "Details") or {}
+                year_val = self.g(details, "year", "Year")
+                year = self.to_int(year_val, 0)
+                movie_key = f"{title.lower()}|{year}" if year > 0 else title.lower()
+
+                oid = self.movies_map.get(movie_key)
+                if oid:
+                    dt = self.combine_dt(self.g(m, "date", "Date"), self.g(m, "time", "Time"))
+                    new_invoice["movies"].append({
+                        "movieId": oid,
+                        "date": self.g(m, "date", "Date"),
+                        "time": self.g(m, "time", "Time"),
+                        "dateTime": dt,
+                        "viewingPct": self.to_int(self.g(m, "viewingPct", "Viewing PCT"), 0),
+                        "license": self.g(m, "license", "License") or {}
+                    })
+
+            # Series referenciadas
+            for s in inv.get("Series", []) or []:
+                title_raw = self.g(s, "title", "Title")
+                title = self.normalize_string(title_raw)
+                if not title:
+                    continue
+
+                series_key = title.lower()
+                oid = self.series_map.get(series_key)
+                if oid:
+                    dt = self.combine_dt(self.g(s, "date", "Date"), self.g(s, "time", "Time"))
+                    new_invoice["series"].append({
+                        "seriesId": oid,
+                        "season": self.to_int(self.g(s, "season", "Season"), 0),
+                        "episode": self.to_int(self.g(s, "episode", "Episode"), 0),
+                        "date": self.g(s, "date", "Date"),
+                        "time": self.g(s, "time", "Time"),
+                        "dateTime": dt,
+                        "viewingPct": self.to_int(self.g(s, "viewingPct", "Viewing PCT"), 0),
+                        "license": self.g(s, "license", "License") or {}
+                    })
+
+            batch.append(new_invoice)
+            if len(batch) >= batch_size:
+                self.invoices_new.insert_many(batch)
+                batch = []
+
+        if batch:
+            self.invoices_new.insert_many(batch)
+
+        print(f"\nFacturas reestructuradas: {processed}")
+
+    def create_indexes(self):
+        print("\nPASO 4: CREANDO ÍNDICES")
+        print("-" * 80)
+
+        # movies
+        print("   Índices en 'movies'...")
+        self.movies_collection.create_index([("title", ASCENDING)], name="title_idx", unique=False)
+        # Único por (title, details.year) cuando year existe. Sin $ne en partialFilter.
+        self.movies_collection.create_index(
+            [("title", ASCENDING), ("details.year", ASCENDING)],
+            name="uniq_title_year_when_year",
+            unique=True,
+            partialFilterExpression={"details.year": {"$exists": True}}
+        )
+        self.movies_collection.create_index([("details.genres", ASCENDING)], name="genres_idx")
+        self.movies_collection.create_index([("details.year", ASCENDING)], name="year_idx")
+        self.movies_collection.create_index([("details.director.name", ASCENDING)], name="director_idx")
+        print("   Hecho")
+
+        # series
+        print("   Índices en 'series'...")
+        self.series_collection.create_index([("title", ASCENDING)], name="series_title_unique", unique=True)
+        self.series_collection.create_index([("totalSeasons", ASCENDING)], name="series_totalseasons_idx")
+        print("   Hecho")
+
+        # invoices_restructured
+        print("   Índices en 'invoices_restructured'...")
+        self.invoices_new.create_index([("client.customerCode", ASCENDING)], name="inv_client_idx")
+        self.invoices_new.create_index([("contract.contractId", ASCENDING)], name="inv_contract_idx")
+        self.invoices_new.create_index([("chargeDate", ASCENDING)], name="inv_chargedate_idx")
+        self.invoices_new.create_index([("billing", ASCENDING)], name="inv_billing_idx")
+        self.invoices_new.create_index([("movies.movieId", ASCENDING)], name="inv_movies_movieId_idx")
+        self.invoices_new.create_index([("series.seriesId", ASCENDING)], name="inv_series_seriesId_idx")
+        self.invoices_new.create_index(
+            [("client.customerCode", ASCENDING), ("chargeDate", ASCENDING)],
+            name="inv_client_chargedate_idx"
+        )
+        self.invoices_new.create_index([("movies.dateTime", ASCENDING)], name="inv_movies_datetime_idx")
+        self.invoices_new.create_index([("series.dateTime", ASCENDING)], name="inv_series_datetime_idx")
+        print("   Hecho")
+
+    def generate_report(self):
+        print("\n" + "=" * 80)
+        print("RESUMEN DE REESTRUCTURACIÓN".center(80))
+        print("=" * 80)
+
+        movies_count = self.movies_collection.count_documents({})
+        series_count = self.series_collection.count_documents({})
+        invoices_count = self.invoices_new.count_documents({})
+
+        print("\nAlmacenamiento:")
+        try:
+            original_size = self.db.command("collstats", SOURCE_COLLECTION)["size"]
+            new_size = (
+                self.db.command("collstats", MOVIES_COLLECTION)["size"] +
+                self.db.command("collstats", SERIES_COLLECTION)["size"] +
+                self.db.command("collstats", INVOICES_COLLECTION)["size"]
+            )
+            reduction_pct = ((original_size - new_size) / original_size) * 100 if original_size > 0 else 0
+            print(f"   Tamaño original: {original_size / 1024 / 1024:.2f} MB")
+            print(f"   Tamaño nuevo:    {new_size / 1024 / 1024:.2f} MB")
+            print(f"   Reducción:       {reduction_pct:.1f}%")
+        except Exception as e:
+            print(f"   No se pudo calcular el tamaño: {e}")
+
+        print("\nEstadísticas:")
+        print(f"   Películas únicas:           {movies_count}")
+        print(f"   Series únicas:              {series_count}")
+        print(f"   Facturas reestructuradas:   {invoices_count}")
+
+        print("\nBeneficios:")
+        print("   Eliminación de redundancia")
+        print("   Modelo normalizado y escalable")
+        print("   Consultas eficientes por índices")
+        print("   Tipado temporal consistente con dateTime")
+
+    def run(self):
+        start = datetime.now(timezone.utc)
+
+        try:
+            if SOURCE_COLLECTION not in self.db.list_collection_names():
+                print(f"ERROR: No existe la colección '{SOURCE_COLLECTION}' en '{DATABASE_NAME}'.")
+                print("Asegúrate de haber ejecutado el script de limpieza primero.")
+                return
+
+            print("Limpiando colecciones destino...")
+            self.movies_collection.drop()
+            self.series_collection.drop()
+            self.invoices_new.drop()
+            print("Colecciones destino limpias.\n")
+
+            self.extract_movies()
+            self.extract_series()
+            self.restructure_invoices()
+            self.create_indexes()
+            self.generate_report()
+
+            elapsed = datetime.now(timezone.utc) - start
+            print(f"\nTiempo total: {elapsed.total_seconds():.2f} s")
+            print("\n" + "=" * 80)
+            print("REESTRUCTURACIÓN COMPLETADA".center(80))
+            print("=" * 80 + "\n")
+
+        except Exception as e:
+            print(f"\nERROR: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.client.close()
+
+
+if __name__ == "__main__":
+    DataRestructurer().run()

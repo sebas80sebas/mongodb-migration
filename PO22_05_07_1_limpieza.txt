@@ -1,0 +1,1459 @@
+// ============================================================================
+// LIMPIEZA DE DATOS - SISTEMA DE FACTURAS STREAMIT (VERSIÓN CORREGIDA V4.1)
+// Base de datos: streamit_db
+// Colección: invoices
+// ============================================================================
+
+// IMPORTANTE: Ejecutar en ORDEN SECUENCIAL
+
+print("\n" + "=".repeat(80));
+print("INICIANDO LIMPIEZA DE DATOS - STREAMIT DB");
+print("=".repeat(80) + "\n");
+
+// ============================================================================
+// PASO 1: RENOMBRAR CAMPOS (SIN MODIFICAR DATOS)
+// ============================================================================
+
+print("PASO 1: Renombrando campos a camelCase...\n");
+
+// 1.1 Nivel raíz
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "TOTAL": "total",
+      "charge date": "chargeDate",
+      "dump date": "dumpDate"
+    }
+  }
+);
+print("✓ Campos de nivel raíz renombrados");
+
+// 1.2 Client
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "Client.customer code": "Client.customerCode",
+      "Client.DNI": "Client.dni",
+      "Client.Name": "Client.name",
+      "Client.Surname": "Client.surname",
+      "Client.Birth date": "Client.birthDate",
+      "Client.Phone": "Client.phone",
+      "Client.Email": "Client.email"
+    }
+  }
+);
+print("✓ Campos de Client renombrados");
+
+// 1.3 Contract
+db.invoices.updateMany(
+  {},
+  {
+    $rename: {
+      "contract.contract ID": "contract.contractId",
+      "contract.start date": "contract.startDate",
+      "contract.end date": "contract.endDate",
+      "contract.ZIP": "contract.zip",
+      "contract.product.Reference": "contract.product.reference",
+      "contract.product.monthly fee": "contract.product.monthlyFee",
+      "contract.product.cost per content": "contract.product.costPerContent",
+      "contract.product.cost per minute": "contract.product.costPerMinute",
+      "contract.product.cost per day": "contract.product.costPerDay"
+    }
+  }
+);
+print("✓ Campos de contract renombrados");
+
+// 1.4 Movies: crear siempre 'title' limpio con fallback Title
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              Date: "$$m.Date",
+              Time: "$$m.Time",
+              title: {
+                $let: {
+                  vars: {
+                    lo: { $ifNull: ["$$m.title", ""] },
+                    up: { $ifNull: ["$$m.Title", ""] }
+                  },
+                  in: {
+                    $trim: {
+                      input: {
+                        $cond: [
+                          { $ne: [ { $trim: { input: "$$lo" } }, "" ] },
+                          "$$lo",
+                          "$$up"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              viewingPct: { $ifNull: ["$$m.Viewing PCT", 0] },
+              License: "$$m.License",
+              Details: "$$m.Details"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Movies: 'title' normalizado con fallback de 'Title'");
+
+// 1.5 Series: crear siempre 'title' limpio con fallback Title
+db.invoices.updateMany(
+  { Series: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              Date: "$$s.Date",
+              Time: "$$s.Time",
+              title: {
+                $let: {
+                  vars: {
+                    lo: { $ifNull: ["$$s.title", ""] },
+                    up: { $ifNull: ["$$s.Title", ""] }
+                  },
+                  in: {
+                    $trim: {
+                      input: {
+                        $cond: [
+                          { $ne: [ { $trim: { input: "$$lo" } }, "" ] },
+                          "$$lo",
+                          "$$up"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              Season: "$$s.Season",
+              Episode: "$$s.Episode",
+              avgDuration: { $ifNull: ["$$s.Avg duration", 0] },
+              totalEpisodes: { $ifNull: ["$$s.Total Episodes", 0] },
+              totalSeasons: { $ifNull: ["$$s.Total Seasons", 0] },
+              viewingPct: { $ifNull: ["$$s.Viewing PCT", 0] },
+              License: "$$s.License"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Series: 'title' normalizado con fallback de 'Title'");
+
+// ============================================================================
+// PASO 2: CONVERTIR FECHAS A ISODate
+// ============================================================================
+
+print("\nPASO 2: Convirtiendo fechas a ISODate...\n");
+
+// Helper para DD/MM/YY (año > 25 = 19XX, en otro caso 20XX)
+function createDateConversion(fieldPath) {
+  return {
+    $let: {
+      vars: {
+        dayStr: { $substr: [fieldPath, 0, 2] },
+        monthStr: { $substr: [fieldPath, 3, 2] },
+        yearStr: { $substr: [fieldPath, 6, 2] }
+      },
+      in: {
+        $dateFromString: {
+          dateString: {
+            $concat: [
+              { $cond: [{ $gt: [{ $toInt: "$$yearStr" }, 25] }, "19", "20"] },
+              "$$yearStr",
+              "-",
+              "$$monthStr",
+              "-",
+              "$$dayStr"
+            ]
+          },
+          format: "%Y-%m-%d",
+          onError: null
+        }
+      }
+    }
+  };
+}
+
+// 2.1 chargeDate
+db.invoices.updateMany(
+  { chargeDate: { $type: "string" } },
+  [{ $set: { chargeDate: createDateConversion("$chargeDate") } }]
+);
+print("✓ chargeDate convertido a ISODate");
+
+// 2.2 dumpDate
+db.invoices.updateMany(
+  { dumpDate: { $type: "string" } },
+  [{ $set: { dumpDate: createDateConversion("$dumpDate") } }]
+);
+print("✓ dumpDate convertido a ISODate");
+
+// 2.3 billing ("Month YYYY" -> primer día de mes, case-insensitive)
+db.invoices.updateMany(
+  { billing: { $type: "string" } },
+  [
+    {
+      $set: {
+        billing: {
+          $let: {
+            vars: {
+              monthLower: {
+                $toLower: {
+                  $arrayElemAt: [{ $split: [{ $trim: { input: "$billing" } }, " "] }, 0]
+                }
+              },
+              yearStr: {
+                $arrayElemAt: [{ $split: [{ $trim: { input: "$billing" } }, " "] }, 1]
+              }
+            },
+            in: {
+              $dateFromString: {
+                dateString: {
+                  $concat: [
+                    "$$yearStr",
+                    "-",
+                    {
+                      $switch: {
+                        branches: [
+                          { case: { $eq: ["$$monthLower", "january"] }, then: "01" },
+                          { case: { $eq: ["$$monthLower", "february"] }, then: "02" },
+                          { case: { $eq: ["$$monthLower", "march"] }, then: "03" },
+                          { case: { $eq: ["$$monthLower", "april"] }, then: "04" },
+                          { case: { $eq: ["$$monthLower", "may"] }, then: "05" },
+                          { case: { $eq: ["$$monthLower", "june"] }, then: "06" },
+                          { case: { $eq: ["$$monthLower", "july"] }, then: "07" },
+                          { case: { $eq: ["$$monthLower", "august"] }, then: "08" },
+                          { case: { $eq: ["$$monthLower", "september"] }, then: "09" },
+                          { case: { $eq: ["$$monthLower", "october"] }, then: "10" },
+                          { case: { $eq: ["$$monthLower", "november"] }, then: "11" },
+                          { case: { $eq: ["$$monthLower", "december"] }, then: "12" }
+                        ],
+                        default: "01"
+                      }
+                    },
+                    "-01"
+                  ]
+                },
+                format: "%Y-%m-%d",
+                onError: null
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ billing convertido a ISODate");
+
+// 2.4 Client.birthDate
+db.invoices.updateMany(
+  { "Client.birthDate": { $type: "string" } },
+  [{ $set: { "Client.birthDate": createDateConversion("$Client.birthDate") } }]
+);
+print("✓ Client.birthDate convertido a ISODate");
+
+// 2.5 contract.startDate
+db.invoices.updateMany(
+  { "contract.startDate": { $type: "string" } },
+  [{ $set: { "contract.startDate": createDateConversion("$contract.startDate") } }]
+);
+print("✓ contract.startDate convertido a ISODate");
+
+// 2.6 contract.endDate
+db.invoices.updateMany(
+  { "contract.endDate": { $type: "string" } },
+  [{ $set: { "contract.endDate": createDateConversion("$contract.endDate") } }]
+);
+print("✓ contract.endDate convertido a ISODate");
+
+// 2.7 Movies: Date y License.Date robusto, y reforzar 'title'
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              $mergeObjects: [
+                "$$m",
+                {
+                  date: {
+                    $let: {
+                      vars: {
+                        s:   { $toString: { $ifNull: ["$$m.Date", ""] } },
+                        len: { $strLenCP: { $toString: { $ifNull: ["$$m.Date", ""] } } }
+                      },
+                      in: {
+                        $cond: [
+                          { $gte: ["$$len", 8] },
+                          {
+                            $dateFromString: {
+                              dateString: {
+                                $let: {
+                                  vars: {
+                                    yearStr: {
+                                      $cond: [
+                                        { $eq: ["$$len", 10] },
+                                        { $substrCP: ["$$s", 6, 4] },
+                                        { $substrCP: ["$$s", 6, 2] }
+                                      ]
+                                    },
+                                    prefix: {
+                                      $cond: [
+                                        { $eq: ["$$len", 10] },
+                                        "",
+                                        {
+                                          $cond: [
+                                            { $gt: [{
+                                              $toInt: {
+                                                $cond: [
+                                                  { $eq: ["$$len", 10] },
+                                                  { $substrCP: ["$$s", 6, 4] },
+                                                  { $substrCP: ["$$s", 6, 2] }
+                                                ]
+                                              }
+                                            }, 25] },
+                                            "19",
+                                            "20"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  in: {
+                                    $concat: [
+                                      "$$prefix",
+                                      "$$yearStr",
+                                      "-",
+                                      { $substrCP: ["$$s", 3, 2] },
+                                      "-",
+                                      { $substrCP: ["$$s", 0, 2] }
+                                    ]
+                                  }
+                                }
+                              },
+                              format: "%Y-%m-%d",
+                              onError: null
+                            }
+                          },
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  time: "$$m.Time",
+                  title: {
+                    $let: {
+                      vars: {
+                        lo: { $ifNull: ["$$m.title", ""] },
+                        up: { $ifNull: ["$$m.Title", ""] }
+                      },
+                      in: {
+                        $trim: {
+                          input: {
+                            $cond: [
+                              { $ne: [ { $trim: { input: "$$lo" } }, "" ] },
+                              "$$lo",
+                              "$$up"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  viewingPct: "$$m.viewingPct",
+                  license: {
+                    date: {
+                      $let: {
+                        vars: {
+                          sL:   { $toString: { $ifNull: ["$$m.License.Date", ""] } },
+                          lenL: { $strLenCP: { $toString: { $ifNull: ["$$m.License.Date", ""] } } }
+                        },
+                        in: {
+                          $cond: [
+                            { $gte: ["$$lenL", 8] },
+                            {
+                              $dateFromString: {
+                                dateString: {
+                                  $let: {
+                                    vars: {
+                                      yearStr: {
+                                        $cond: [
+                                          { $eq: ["$$lenL", 10] },
+                                          { $substrCP: ["$$sL", 6, 4] },
+                                          { $substrCP: ["$$sL", 6, 2] }
+                                        ]
+                                      },
+                                      prefix: {
+                                        $cond: [
+                                          { $eq: ["$$lenL", 10] },
+                                          "",
+                                          {
+                                            $cond: [
+                                              { $gt: [{
+                                                $toInt: {
+                                                  $cond: [
+                                                    { $eq: ["$$lenL", 10] },
+                                                    { $substrCP: ["$$sL", 6, 4] },
+                                                    { $substrCP: ["$$sL", 6, 2] }
+                                                  ]
+                                                }
+                                              }, 25] },
+                                              "19",
+                                              "20"
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    in: {
+                                      $concat: [
+                                        "$$prefix",
+                                        "$$yearStr",
+                                        "-",
+                                        { $substrCP: ["$$sL", 3, 2] },
+                                        "-",
+                                        { $substrCP: ["$$sL", 0, 2] }
+                                      ]
+                                    }
+                                  }
+                                },
+                                format: "%Y-%m-%d",
+                                onError: null
+                              }
+                            },
+                            null
+                          ]
+                        }
+                      }
+                    },
+                    time: { $ifNull: ["$$m.License.Time", ""] }
+                  },
+                  Details: "$$m.Details"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+// Eliminar Date/Time antiguos en Movies y quedarnos con campos definitivos
+db.invoices.updateMany(
+  { Movies: { $exists: true } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              date: "$$m.date",
+              time: "$$m.time",
+              title: {
+                $trim: {
+                  input: { $ifNull: ["$$m.title", ""] }
+                }
+              },
+              viewingPct: "$$m.viewingPct",
+              license: "$$m.license",
+              Details: "$$m.Details"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Movies: fechas convertidas y 'title' reforzado");
+
+// 2.8 Series: Date y License.Date robusto, y reforzar 'title'
+db.invoices.updateMany(
+  { Series: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              $mergeObjects: [
+                "$$s",
+                {
+                  date: {
+                    $let: {
+                      vars: {
+                        s:   { $toString: { $ifNull: ["$$s.Date", ""] } },
+                        len: { $strLenCP: { $toString: { $ifNull: ["$$s.Date", ""] } } }
+                      },
+                      in: {
+                        $cond: [
+                          { $gte: ["$$len", 8] },
+                          {
+                            $dateFromString: {
+                              dateString: {
+                                $let: {
+                                  vars: {
+                                    yearStr: {
+                                      $cond: [
+                                        { $eq: ["$$len", 10] },
+                                        { $substrCP: ["$$s", 6, 4] },
+                                        { $substrCP: ["$$s", 6, 2] }
+                                      ]
+                                    },
+                                    prefix: {
+                                      $cond: [
+                                        { $eq: ["$$len", 10] },
+                                        "",
+                                        {
+                                          $cond: [
+                                            { $gt: [{
+                                              $toInt: {
+                                                $cond: [
+                                                  { $eq: ["$$len", 10] },
+                                                  { $substrCP: ["$$s", 6, 4] },
+                                                  { $substrCP: ["$$s", 6, 2] }
+                                                ]
+                                              }
+                                            }, 25] },
+                                            "19",
+                                            "20"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  in: {
+                                    $concat: [
+                                      "$$prefix",
+                                      "$$yearStr",
+                                      "-",
+                                      { $substrCP: ["$$s", 3, 2] },
+                                      "-",
+                                      { $substrCP: ["$$s", 0, 2] }
+                                    ]
+                                  }
+                                }
+                              },
+                              format: "%Y-%m-%d",
+                              onError: null
+                            }
+                          },
+                          null
+                        ]
+                      }
+                    }
+                  },
+                  time: "$$s.Time",
+                  title: {
+                    $let: {
+                      vars: {
+                        lo: { $ifNull: ["$$s.title", ""] },
+                        up: { $ifNull: ["$$s.Title", ""] }
+                      },
+                      in: {
+                        $trim: {
+                          input: {
+                            $cond: [
+                              { $ne: [ { $trim: { input: "$$lo" } }, "" ] },
+                              "$$lo",
+                              "$$up"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  season: "$$s.Season",
+                  episode: "$$s.Episode",
+                  avgDuration: "$$s.avgDuration",
+                  totalEpisodes: "$$s.totalEpisodes",
+                  totalSeasons: "$$s.totalSeasons",
+                  viewingPct: "$$s.viewingPct",
+                  license: {
+                    date: {
+                      $let: {
+                        vars: {
+                          sL:   { $toString: { $ifNull: ["$$s.License.Date", ""] } },
+                          lenL: { $strLenCP: { $toString: { $ifNull: ["$$s.License.Date", ""] } } }
+                        },
+                        in: {
+                          $cond: [
+                            { $gte: ["$$lenL", 8] },
+                            {
+                              $dateFromString: {
+                                dateString: {
+                                  $let: {
+                                    vars: {
+                                      yearStr: {
+                                        $cond: [
+                                          { $eq: ["$$lenL", 10] },
+                                          { $substrCP: ["$$sL", 6, 4] },
+                                          { $substrCP: ["$$sL", 6, 2] }
+                                        ]
+                                      },
+                                      prefix: {
+                                        $cond: [
+                                          { $eq: ["$$lenL", 10] },
+                                          "",
+                                          {
+                                            $cond: [
+                                              { $gt: [{
+                                                $toInt: {
+                                                  $cond: [
+                                                    { $eq: ["$$lenL", 10] },
+                                                    { $substrCP: ["$$sL", 6, 4] },
+                                                    { $substrCP: ["$$sL", 6, 2] }
+                                                  ]
+                                                }
+                                              }, 25] },
+                                              "19",
+                                              "20"
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    in: {
+                                      $concat: [
+                                        "$$prefix",
+                                        "$$yearStr",
+                                        "-",
+                                        { $substrCP: ["$$sL", 3, 2] },
+                                        "-",
+                                        { $substrCP: ["$$sL", 0, 2] }
+                                      ]
+                                    }
+                                  }
+                                },
+                                format: "%Y-%m-%d",
+                                onError: null
+                              }
+                            },
+                            null
+                          ]
+                        }
+                      }
+                    },
+                    time: { $ifNull: ["$$s.License.Time", ""] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+// Eliminar Date/Time antiguos en Series y quedarnos con campos definitivos
+db.invoices.updateMany(
+  { Series: { $exists: true } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              date: "$$s.date",
+              time: "$$s.time",
+              title: {
+                $trim: {
+                  input: { $ifNull: ["$$s.title", ""] }
+                }
+              },
+              season: "$$s.season",
+              episode: "$$s.episode",
+              avgDuration: "$$s.avgDuration",
+              totalEpisodes: "$$s.totalEpisodes",
+              totalSeasons: "$$s.totalSeasons",
+              viewingPct: "$$s.viewingPct",
+              license: "$$s.license"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Series: fechas convertidas y 'title' reforzado");
+
+// ============================================================================
+// PASO 3: NORMALIZAR TIPOS DE DATOS
+// ============================================================================
+
+print("\nPASO 3: Normalizando tipos de datos...\n");
+
+// 3.1 Client.surname array -> string
+db.invoices.updateMany(
+  { "Client.surname": { $type: "array" } },
+  [
+    {
+      $set: {
+        "Client.surname": {
+          $reduce: {
+            input: "$Client.surname",
+            initialValue: "",
+            in: {
+              $concat: [
+                "$$value",
+                { $cond: [{ $eq: ["$$value", ""] }, "", " "] },
+                "$$this"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Client.surname convertido a string");
+
+// 3.2 Client.phone -> string de dígitos
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "Client.phone": {
+          $let: {
+            vars: { s: { $toString: { $ifNull: ["$Client.phone", ""] } } },
+            in: {
+              $reduce: {
+                input: { $range: [0, { $strLenCP: "$$s" }] },
+                initialValue: "",
+                in: {
+                  $let: {
+                    vars: { ch: { $substrCP: ["$$s", "$$this", 1] } },
+                    in: {
+                      $cond: [
+                        { $in: ["$$ch", ["0","1","2","3","4","5","6","7","8","9"]] },
+                        { $concat: ["$$value", "$$ch"] },
+                        "$$value"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Client.phone normalizado a string de dígitos");
+
+// 3.3 total -> Decimal128
+db.invoices.updateMany(
+  {},
+  [{ $set: { total: { $toDecimal: { $ifNull: ["$total", "0"] } } } }]
+);
+print("✓ total convertido a Decimal128");
+
+// 3.4 Monetarios de contract.product -> Decimal128
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "contract.product.monthlyFee": { $toDecimal: { $ifNull: ["$contract.product.monthlyFee", "0"] } },
+        "contract.product.costPerContent": { $toDecimal: { $ifNull: ["$contract.product.costPerContent", "0"] } },
+        "contract.product.costPerMinute": { $toDecimal: { $ifNull: ["$contract.product.costPerMinute", "0"] } },
+        "contract.product.costPerDay": { $toDecimal: { $ifNull: ["$contract.product.costPerDay", "0"] } }
+      }
+    }
+  ]
+);
+print("✓ Monetarios de contract.product convertidos a Decimal128");
+
+// 3.5 viewingPct -> Int32 en Movies
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              $mergeObjects: ["$$m", { viewingPct: { $toInt: { $ifNull: ["$$m.viewingPct", 0] } } }]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ viewingPct en Movies a Int32");
+
+// 3.6 viewingPct -> Int32 en Series
+db.invoices.updateMany(
+  { Series: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              $mergeObjects: ["$$s", { viewingPct: { $toInt: { $ifNull: ["$$s.viewingPct", 0] } } }]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ viewingPct en Series a Int32");
+
+// 3.7 Numéricos de Series -> Int32
+db.invoices.updateMany(
+  { Series: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              $mergeObjects: [
+                "$$s",
+                {
+                  season: { $toInt: { $ifNull: ["$$s.season", 0] } },
+                  episode: { $toInt: { $ifNull: ["$$s.episode", 0] } },
+                  avgDuration: { $toInt: { $ifNull: ["$$s.avgDuration", 0] } },
+                  totalEpisodes: { $toInt: { $ifNull: ["$$s.totalEpisodes", 0] } },
+                  totalSeasons: { $toInt: { $ifNull: ["$$s.totalSeasons", 0] } }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Numéricos de Series a Int32");
+
+// ============================================================================
+// PASO 4: REESTRUCTURAR MOVIES.DETAILS
+// ============================================================================
+
+print("\nPASO 4: Reestructurando Movies.Details...\n");
+
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              date: "$$m.date",
+              time: "$$m.time",
+              title: "$$m.title",
+              viewingPct: "$$m.viewingPct",
+              license: "$$m.license",
+              details: {
+                year: { $toInt: { $ifNull: ["$$m.Details.Year", 0] } },
+                country: { $ifNull: ["$$m.Details.Country", "" ] },
+                color: { $ifNull: ["$$m.Details.Color", "" ] },
+                aspectRatio: { $toDouble: { $ifNull: ["$$m.Details.Aspect ratio", 0] } },
+                contentRating: { $ifNull: ["$$m.Details.Content Rating", "" ] },
+                budget: { $toDecimal: { $ifNull: [{ $toString: "$$m.Details.Budget" }, "0"] } },
+                gross:  { $toDecimal: { $ifNull: [{ $toString: "$$m.Details.Gross" }, "0"] } },
+                language: { $ifNull: ["$$m.Details.Language", "" ] },
+                duration: { $toInt: { $ifNull: ["$$m.Details.Duration", 0] } },
+                imdbScore: { $toDouble: { $ifNull: ["$$m.Details.IMDB score", 0] } },
+                imdbLink: {
+                  $let: {
+                    vars: { m: { $regexFind: { input: { $ifNull: ["$$m.Details.IMDB link", ""] }, regex: /tt[0-9]+/ } } },
+                    in: {
+                      $cond: [
+                        { $ne: ["$$m", null] },
+                        { $concat: ["https://www.imdb.com/title/", "$$m.match", "/"] },
+                        ""
+                      ]
+                    }
+                  }
+                },
+                criticReviews: { $toInt: { $ifNull: ["$$m.Details.Critic reviews", 0] } },
+                userReviews: { $toInt: { $ifNull: ["$$m.Details.User reviews", 0] } },
+                votedUsers: { $toInt: { $ifNull: ["$$m.Details.Voted users", 0] } },
+                facebookLikes: { $toInt: { $ifNull: ["$$m.Details.Facebook likes", 0] } },
+                facesInPoster: { $toInt: { $ifNull: ["$$m.Details.Faces in poster", 0] } },
+                genres: { $ifNull: ["$$m.Details.Genres", []] },
+                keywords: { $ifNull: ["$$m.Details.Keywords", []] },
+                director: {
+                  name: { $ifNull: ["$$m.Details.Director.Name", "" ] },
+                  facebookLikes: { $toInt: { $ifNull: ["$$m.Details.Director.Facebook likes", 0] } }
+                },
+                cast: {
+                  facebookLikes: { $toInt: { $ifNull: ["$$m.Details.Cast.Facebook likes", 0] } },
+                  stars: {
+                    $map: {
+                      input: { $ifNull: ["$$m.Details.Cast.Stars", []] },
+                      as: "star",
+                      in: {
+                        player: { $ifNull: ["$$star.Player", "" ] },
+                        facebookLikes: { $toInt: { $ifNull: ["$$star.Facebook likes", 0] } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Movies.Details reestructurado a Movies.details");
+
+// ============================================================================
+// PASO 5: LIMPIEZA DE STRINGS
+// ============================================================================
+
+print("\nPASO 5: Limpiando y normalizando strings...\n");
+
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        "Client.name": { $trim: { input: { $ifNull: ["$Client.name", ""] } } },
+        "Client.surname": { $trim: { input: { $ifNull: ["$Client.surname", ""] } } },
+        "Client.email": { $toLower: { $trim: { input: { $ifNull: ["$Client.email", ""] } } } },
+        "Client.dni": { $toUpper: { $trim: { input: { $ifNull: ["$Client.dni", ""] } } } },
+        "contract.address": { $trim: { input: { $ifNull: ["$contract.address", ""] } } },
+        "contract.town": { $trim: { input: { $ifNull: ["$contract.town", ""] } } },
+        "contract.country": { $trim: { input: { $ifNull: ["$contract.country", ""] } } }
+      }
+    }
+  ]
+);
+print("✓ Strings de Client y contract limpiados");
+
+// ============================================================================
+// PASO 6: CAMPOS CALCULADOS
+// ============================================================================
+
+print("\nPASO 6: Agregando campos calculados...\n");
+
+// 6.1 Client.age respecto a chargeDate si existe, si no fecha actual
+db.invoices.updateMany(
+  { "Client.birthDate": { $exists: true, $ne: null, $type: "date" } },
+  [
+    {
+      $set: {
+        "Client.age": {
+          $toInt: {
+            $dateDiff: {
+              startDate: "$Client.birthDate",
+              endDate: { $ifNull: ["$chargeDate", new Date()] },
+              unit: "year"
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ Client.age calculado");
+
+// 6.2 contentStats
+db.invoices.updateMany(
+  {},
+  [
+    {
+      $set: {
+        contentStats: {
+          totalMovies: { $size: { $ifNull: ["$Movies", []] } },
+          totalSeries: { $size: { $ifNull: ["$Series", []] } },
+          totalContent: {
+            $add: [
+              { $size: { $ifNull: ["$Movies", []] } },
+              { $size: { $ifNull: ["$Series", []] } }
+            ]
+          }
+        }
+      }
+    }
+  ]
+);
+print("✓ contentStats agregado");
+
+// 6.3 Metadatos
+db.invoices.updateMany(
+  {},
+  { $set: { "_metadata.cleanedAt": new Date(), "_metadata.version": "4.1" } }
+);
+print("✓ Metadatos agregados");
+
+// ============================================================================
+// PASO 6B: REPASO DE TIPADO EN ARRAYS (Movies y Series)
+// ============================================================================
+
+print("\nPASO 6B: Repasando tipos en arrays...\n");
+
+// A) viewingPct en [0,100] e Int32
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              $mergeObjects: [
+                "$$m",
+                {
+                  viewingPct: {
+                    $toInt: {
+                      $min: [100, { $max: [0, { $toInt: { $ifNull: ["$$m.viewingPct", 0] } }] }]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+db.invoices.updateMany(
+  { Series: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              $mergeObjects: [
+                "$$s",
+                {
+                  viewingPct: {
+                    $toInt: {
+                      $min: [100, { $max: [0, { $toInt: { $ifNull: ["$$s.viewingPct", 0] } }] }]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+// B) Forzar tipos en Movies.details ya reestructurado
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              $mergeObjects: [
+                "$$m",
+                {
+                  details: {
+                    year: { $toInt: { $ifNull: ["$$m.details.year", 0] } },
+                    duration: { $toInt: { $ifNull: ["$$m.details.duration", 0] } },
+                    criticReviews: { $toInt: { $ifNull: ["$$m.details.criticReviews", 0] } },
+                    userReviews: { $toInt: { $ifNull: ["$$m.details.userReviews", 0] } },
+                    votedUsers: { $toInt: { $ifNull: ["$$m.details.votedUsers", 0] } },
+                    facebookLikes: { $toInt: { $ifNull: ["$$m.details.facebookLikes", 0] } },
+                    facesInPoster: { $toInt: { $ifNull: ["$$m.details.facesInPoster", 0] } },
+                    budget: { $toDecimal: { $ifNull: [{ $toString: "$$m.details.budget" }, "0"] } },
+                    gross:  { $toDecimal: { $ifNull: [{ $toString: "$$m.details.gross" }, "0"] } },
+                    imdbScore: { $toDouble: { $ifNull: ["$$m.details.imdbScore", 0] } },
+                    aspectRatio: { $toDouble: { $ifNull: ["$$m.details.aspectRatio", 0] } },
+                    country: { $ifNull: ["$$m.details.country", ""] },
+                    color: { $ifNull: ["$$m.details.color", ""] },
+                    contentRating: { $ifNull: ["$$m.details.contentRating", ""] },
+                    language: { $ifNull: ["$$m.details.language", ""] },
+                    genres: { $ifNull: ["$$m.details.genres", []] },
+                    keywords: { $ifNull: ["$$m.details.keywords", []] },
+                    director: {
+                      name: { $ifNull: ["$$m.details.director.name", ""] },
+                      facebookLikes: { $toInt: { $ifNull: ["$$m.details.director.facebookLikes", 0] } }
+                    },
+                    cast: {
+                      facebookLikes: { $toInt: { $ifNull: ["$$m.details.cast.facebookLikes", 0] } },
+                      stars: {
+                        $map: {
+                          input: { $ifNull: ["$$m.details.cast.stars", []] },
+                          as: "star",
+                          in: {
+                            player: { $ifNull: ["$$star.player", ""] },
+                            facebookLikes: { $toInt: { $ifNull: ["$$star.facebookLikes", 0] } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+// C) Forzar numéricos en Series
+db.invoices.updateMany(
+  { Series: { $exists: true, $ne: null } },
+  [
+    {
+      $set: {
+        Series: {
+          $map: {
+            input: "$Series",
+            as: "s",
+            in: {
+              $mergeObjects: [
+                "$$s",
+                {
+                  season: { $toInt: { $ifNull: ["$$s.season", 0] } },
+                  episode: { $toInt: { $ifNull: ["$$s.episode", 0] } },
+                  avgDuration: { $toInt: { $ifNull: ["$$s.avgDuration", 0] } },
+                  totalEpisodes: { $toInt: { $ifNull: ["$$s.totalEpisodes", 0] } },
+                  totalSeasons: { $toInt: { $ifNull: ["$$s.totalSeasons", 0] } }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+// ============================================================================
+// PASO 6C: Normalizar imdbLink vacío en Movies.details
+// ============================================================================
+print("\nPASO 6C: Normalizando imdbLink en Movies.details...\n");
+
+db.invoices.updateMany(
+  { Movies: { $exists: true, $ne: [] } },
+  [
+    {
+      $set: {
+        Movies: {
+          $map: {
+            input: "$Movies",
+            as: "m",
+            in: {
+              $mergeObjects: [
+                "$$m",
+                {
+                  details: {
+                    $cond: [
+                      { $eq: [{ $type: "$$m.details" }, "object"] },
+                      { $mergeObjects: ["$$m.details", { imdbLink: { $ifNull: ["$$m.details.imdbLink", ""] } }] },
+                      { imdbLink: "" }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+);
+
+print("✓ imdbLink normalizado a string vacío cuando falta");
+
+print("OK: Repaso de tipado en arrays completado");
+
+// ============================================================================
+// PASO 7: CREAR ÍNDICES
+// ============================================================================
+
+print("\nPASO 7: Creando índices...\n");
+
+db.invoices.createIndex({ "Client.customerCode": 1 });
+db.invoices.createIndex({ "Client.email": 1 });
+db.invoices.createIndex({ "Client.dni": 1 });
+db.invoices.createIndex({ "contract.contractId": 1 });
+db.invoices.createIndex({ "chargeDate": 1 });
+db.invoices.createIndex({ "billing": 1 });
+db.invoices.createIndex({ "Client.customerCode": 1, "chargeDate": 1 });
+
+print("✓ Índices base creados");
+
+// ============================================================================
+// PASO 7B: Índices adicionales para contenidos y títulos
+// ============================================================================
+print("\nPASO 7B: Creando índices adicionales...\n");
+
+db.invoices.createIndex({ "Movies.date": 1 });
+db.invoices.createIndex({ "Series.date": 1 });
+db.invoices.createIndex({ billing: 1, "Client.customerCode": 1 });
+db.invoices.createIndex({ "Movies.title": "text", "Series.title": "text" });
+
+print("✓ Índices adicionales creados");
+
+// ============================================================================
+// VALIDACIONES FINALES
+// ============================================================================
+
+print("\n" + "=".repeat(80));
+print("VALIDACIONES FINALES");
+print("=".repeat(80) + "\n");
+
+function cd(q) { return db.invoices.countDocuments(q); }
+
+var simpleChecks = [
+  { name: "Fechas nulas críticas", query: { $or: [{ chargeDate: null }, { dumpDate: null }, { billing: null }] } },
+  { name: "total no Decimal128", query: { total: { $not: { $type: "decimal" } } } },
+  { name: "Surname en array", query: { "Client.surname": { $type: "array" } } },
+  { name: "Emails inválidos (sin @)", query: { "Client.email": { $exists: true, $ne: "", $not: { $regex: /@/ } } } },
+  { name: "DNIs faltantes", query: { $or: [{ "Client.dni": "" }, { "Client.dni": null }] } },
+  { name: "Fechas nacimiento futuras", query: { "Client.birthDate": { $gt: new Date() } } },
+  { name: "Edades inválidas", query: { $or: [{ "Client.age": { $lt: 0 } }, { "Client.age": { $gt: 120 } }] } },
+  { name: "Campos monetarios no Decimal128", query: { $or: [
+    { "contract.product.monthlyFee": { $not: { $type: "decimal" } } },
+    { "contract.product.costPerContent": { $not: { $type: "decimal" } } },
+    { "contract.product.costPerDay": { $not: { $type: "decimal" } } },
+    { "contract.product.costPerMinute": { $not: { $type: "decimal" } } }
+  ]}},
+  { name: "Teléfonos con caracteres no numéricos", query: { "Client.phone": { $type: "string", $regex: /[^0-9]/ } } },
+  { name: "Movies con fechas string", query: { "Movies.date": { $type: "string" } } },
+  { name: "Series con fechas string", query: { "Series.date": { $type: "string" } } },
+  { name: "Movies sin título", query: { Movies: { $elemMatch: { $or: [ { title: null }, { title: "" } ] } } } },
+  { name: "Series sin título", query: { Series: { $elemMatch: { $or: [ { title: null }, { title: "" } ] } } } }
+];
+
+var totalErrors = 0;
+simpleChecks.forEach(function(ch) {
+  var c = cd(ch.query);
+  if (c > 0) { print("[ERROR] " + ch.name + ": " + c); totalErrors += c; }
+  else { print("[OK] " + ch.name + ": 0"); }
+});
+
+// Helpers para arrays
+function countDocsWithBadMovies(condExpr) {
+  var arr = db.invoices.aggregate([
+    { $match: { Movies: { $exists: true, $ne: [] } } },
+    {
+      $project: {
+        hasBad: {
+          $gt: [
+            { $size: { $filter: { input: "$Movies", as: "m", cond: condExpr } } },
+            0
+          ]
+        }
+      }
+    },
+    { $match: { hasBad: true } },
+    { $count: "docs" }
+  ]).toArray();
+  return arr.length ? arr[0].docs : 0;
+}
+
+function countDocsWithBadSeries(condExpr) {
+  var arr = db.invoices.aggregate([
+    { $match: { Series: { $exists: true, $ne: [] } } },
+    {
+      $project: {
+        hasBad: {
+          $gt: [
+            { $size: { $filter: { input: "$Series", as: "s", cond: condExpr } } },
+            0
+          ]
+        }
+      }
+    },
+    { $match: { hasBad: true } },
+    { $count: "docs" }
+  ]).toArray();
+  return arr.length ? arr[0].docs : 0;
+}
+
+// Movies
+var m_viewingPct_not_int = countDocsWithBadMovies({ $ne: [ { $type: "$$m.viewingPct" }, "int" ] });
+print((m_viewingPct_not_int ? "[ERROR] " : "[OK] ") + "viewingPct no Int32 en Movies: " + m_viewingPct_not_int);
+totalErrors += m_viewingPct_not_int;
+
+var m_budget_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.budget" }, "decimal" ] });
+print((m_budget_bad ? "[ERROR] " : "[OK] ") + "Movies: budget no Decimal128: " + m_budget_bad);
+totalErrors += m_budget_bad;
+
+var m_gross_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.gross" }, "decimal" ] });
+print((m_gross_bad ? "[ERROR] " : "[OK] ") + "Movies: gross no Decimal128: " + m_gross_bad);
+totalErrors += m_gross_bad;
+
+var m_year_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.year" }, "int" ] });
+print((m_year_bad ? "[ERROR] " : "[OK] ") + "Movies: year no Int32: " + m_year_bad);
+totalErrors += m_year_bad;
+
+var m_duration_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.duration" }, "int" ] });
+print((m_duration_bad ? "[ERROR] " : "[OK] ") + "Movies: duration no Int32: " + m_duration_bad);
+totalErrors += m_duration_bad;
+
+var m_critic_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.criticReviews" }, "int" ] });
+print((m_critic_bad ? "[ERROR] " : "[OK] ") + "Movies: criticReviews no Int32: " + m_critic_bad);
+totalErrors += m_critic_bad;
+
+var m_user_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.userReviews" }, "int" ] });
+print((m_user_bad ? "[ERROR] " : "[OK] ") + "Movies: userReviews no Int32: " + m_user_bad);
+totalErrors += m_user_bad;
+
+var m_voted_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.votedUsers" }, "int" ] });
+print((m_voted_bad ? "[ERROR] " : "[OK] ") + "Movies: votedUsers no Int32: " + m_voted_bad);
+totalErrors += m_voted_bad;
+
+var m_fblikes_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.facebookLikes" }, "int" ] });
+print((m_fblikes_bad ? "[ERROR] " : "[OK] ") + "Movies: facebookLikes no Int32: " + m_fblikes_bad);
+totalErrors += m_fblikes_bad;
+
+var m_faces_bad = countDocsWithBadMovies({ $ne: [ { $type: "$$m.details.facesInPoster" }, "int" ] });
+print((m_faces_bad ? "[ERROR] " : "[OK] ") + "Movies: facesInPoster no Int32: " + m_faces_bad);
+totalErrors += m_faces_bad;
+
+// Series
+var s_viewingPct_not_int = countDocsWithBadSeries({ $ne: [ { $type: "$$s.viewingPct" }, "int" ] });
+print((s_viewingPct_not_int ? "[ERROR] " : "[OK] ") + "viewingPct no Int32 en Series: " + s_viewingPct_not_int);
+totalErrors += s_viewingPct_not_int;
+
+var s_season_bad = countDocsWithBadSeries({ $ne: [ { $type: "$$s.season" }, "int" ] });
+print((s_season_bad ? "[ERROR] " : "[OK] ") + "Series: season no Int32: " + s_season_bad);
+totalErrors += s_season_bad;
+
+var s_episode_bad = countDocsWithBadSeries({ $ne: [ { $type: "$$s.episode" }, "int" ] });
+print((s_episode_bad ? "[ERROR] " : "[OK] ") + "Series: episode no Int32: " + s_episode_bad);
+totalErrors += s_episode_bad;
+
+var s_avgdur_bad = countDocsWithBadSeries({ $ne: [ { $type: "$$s.avgDuration" }, "int" ] });
+print((s_avgdur_bad ? "[ERROR] " : "[OK] ") + "Series: avgDuration no Int32: " + s_avgdur_bad);
+totalErrors += s_avgdur_bad;
+
+var s_totale_bad = countDocsWithBadSeries({ $ne: [ { $type: "$$s.totalEpisodes" }, "int" ] });
+print((s_totale_bad ? "[ERROR] " : "[OK] ") + "Series: totalEpisodes no Int32: " + s_totale_bad);
+totalErrors += s_totale_bad;
+
+var s_totals_bad = countDocsWithBadSeries({ $ne: [ { $type: "$$s.totalSeasons" }, "int" ] });
+print((s_totals_bad ? "[ERROR] " : "[OK] ") + "Series: totalSeasons no Int32: " + s_totals_bad);
+totalErrors += s_totals_bad;
+
+print("\n" + "=".repeat(80));
+if (totalErrors === 0) {
+  print("LIMPIEZA COMPLETADA SIN ERRORES");
+} else {
+  print("LIMPIEZA COMPLETADA CON ADVERTENCIAS");
+  print("Total de incidencias en validación: " + totalErrors);
+}
+print("=".repeat(80));
+
+// ============================================================================
+// ESTADÍSTICAS Y MUESTRA
+// ============================================================================
+
+var totalDocs = db.invoices.countDocuments({});
+var docsWithMovies = db.invoices.countDocuments({ Movies: { $exists: true, $ne: [] } });
+var docsWithSeries = db.invoices.countDocuments({ Series: { $exists: true, $ne: [] } });
+
+print("\nESTADÍSTICAS:");
+print("  • Total documentos: " + totalDocs);
+print("  • Con Movies: " + docsWithMovies);
+print("  • Con Series: " + docsWithSeries);
+
+print("\nTIPOS DE DATOS APLICADOS:");
+print("  • Fechas: ISODate");
+print("  • Importes monetarios: Decimal128");
+print("  • Códigos e identificadores: String");
+print("  • Teléfonos: String de dígitos");
+print("  • Porcentajes (viewingPct): Int32 en [0,100]");
+print("  • Duraciones y contadores: Int32");
+
+print("\nVERSIÓN: 4.1");
+print("FECHA: " + new Date().toISOString());
+print("=".repeat(80) + "\n");
+
+// Documento de muestra
+print("\nDOCUMENTO DE MUESTRA (después de la limpieza):");
+print("=".repeat(80));
+var sample = db.invoices.findOne({ Movies: { $exists: true, $ne: [] } });
+if (sample) {
+  printjson({
+    _id: sample._id,
+    billing: sample.billing,
+    total: sample.total,
+    chargeDate: sample.chargeDate,
+    Client: {
+      name: sample.Client.name,
+      surname: sample.Client.surname,
+      birthDate: sample.Client.birthDate,
+      age: sample.Client.age,
+      phone: sample.Client.phone,
+      email: sample.Client.email
+    },
+    Movies_sample: sample.Movies[0] ? {
+      date: sample.Movies[0].date,
+      title: sample.Movies[0].title,
+      viewingPct: sample.Movies[0].viewingPct,
+      details: {
+        year: sample.Movies[0].details.year,
+        budget: sample.Movies[0].details.budget,
+        duration: sample.Movies[0].details.duration,
+        imdbScore: sample.Movies[0].details.imdbScore,
+        imdbLink: sample.Movies[0].details.imdbLink
+      }
+    } : null,
+    contentStats: sample.contentStats,
+    _metadata: sample._metadata
+  });
+}
+print("=".repeat(80) + "\n");

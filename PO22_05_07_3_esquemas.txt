@@ -1,0 +1,527 @@
+// ============================================================================
+// ESQUEMAS DE VALIDACIÓN - SISTEMA STREAMIT (VERSIÓN CORREGIDA)
+// Base de datos: streamit_db
+// ============================================================================
+
+print("\n" + "=".repeat(80));
+print("IMPLEMENTACIÓN DE ESQUEMAS DE VALIDACIÓN - STREAMIT DB");
+print("=".repeat(80) + "\n");
+
+// Helper: aplica collMod o crea con validator si no existe
+function applyOrCreate(name, validator, validationLevel="strict", validationAction="error") {
+  const exists = db.getCollectionInfos({ name }).length > 0;
+  if (exists) {
+    return db.runCommand({ collMod: name, validator, validationLevel, validationAction });
+  } else {
+    return db.createCollection(name, { validator, validationLevel, validationAction });
+  }
+}
+
+// ============================================================================
+// ESQUEMA 1: COLECCIÓN MOVIES
+// ============================================================================
+
+print("PASO 1: Esquema para 'movies'...\n");
+
+applyOrCreate("movies", {
+  $jsonSchema: {
+    bsonType: "object",
+    required: ["title", "details", "_metadata"],
+    additionalProperties: false,
+    properties: {
+      _id: { bsonType: "objectId" },
+      title: { bsonType: "string", minLength: 1, maxLength: 200 },
+      details: {
+        bsonType: "object",
+        // year es OPCIONAL en tu modelo. duration siempre existe con 0..600
+        required: ["duration"],
+        additionalProperties: false,
+        properties: {
+          year: { bsonType: "int", minimum: 1888, maximum: 2030 },
+          country: { bsonType: "string" },
+          color: { bsonType: "string" },
+          aspectRatio: { bsonType: ["double", "int"], minimum: 0, maximum: 10 },
+          contentRating: { bsonType: "string" },
+          budget: { bsonType: "decimal" },
+          gross: { bsonType: "decimal" },
+          director: {
+            bsonType: "object",
+            additionalProperties: false,
+            properties: {
+              name: { bsonType: "string" },
+              facebookLikes: { bsonType: "int", minimum: 0 }
+            }
+          },
+          cast: {
+            bsonType: "object",
+            additionalProperties: false,
+            properties: {
+              facebookLikes: { bsonType: "int", minimum: 0 },
+              stars: {
+                bsonType: "array",
+                maxItems: 50,
+                items: {
+                  bsonType: "object",
+                  required: ["name"],
+                  additionalProperties: false,
+                  properties: {
+                    name: { bsonType: "string", minLength: 1, maxLength: 150 },
+                    facebookLikes: { bsonType: "int", minimum: 0 }
+                  }
+                }
+              }
+            }
+          },
+          language: { bsonType: "string" },
+          genres: {
+            bsonType: "array",
+            uniqueItems: true,
+            maxItems: 10,
+            items: { bsonType: "string", minLength: 1, maxLength: 50 }
+          },
+          keywords: {
+            bsonType: "array",
+            maxItems: 50,
+            items: { bsonType: "string", minLength: 1, maxLength: 100 }
+          },
+          facesInPoster: { bsonType: "int", minimum: 0, maximum: 50 },
+          imdbScore: { bsonType: ["double", "int"], minimum: 0, maximum: 10 },
+          imdbLink: {
+            bsonType: "string",
+            maxLength: 300,
+            // vacío o https/http con ttXXXXX y barra final
+            pattern: "^(|https?://www\\.imdb\\.com/title/tt[0-9]+/)$"
+          },
+          criticReviews: { bsonType: "int", minimum: 0 },
+          userReviews: { bsonType: "int", minimum: 0 },
+          votedUsers: { bsonType: "int", minimum: 0 },
+          facebookLikes: { bsonType: "int", minimum: 0 },
+          duration: { bsonType: "int", minimum: 0, maximum: 600 }
+        }
+      },
+      _metadata: {
+        bsonType: "object",
+        required: ["createdAt", "version"],
+        additionalProperties: false,
+        properties: {
+          createdAt: { bsonType: "date" },
+          version: { bsonType: "string" },
+          updatedAt: { bsonType: "date" }
+        }
+      }
+    }
+  }
+});
+
+print("OK 'movies' validado.");
+
+// ============================================================================
+// ESQUEMA 2: COLECCIÓN SERIES
+// ============================================================================
+
+print("\nPASO 2: Esquema para 'series'...\n");
+
+applyOrCreate("series", {
+  $jsonSchema: {
+    bsonType: "object",
+    required: ["title", "_metadata"],
+    additionalProperties: false,
+    properties: {
+      _id: { bsonType: "objectId" },
+      title: { bsonType: "string", minLength: 1, maxLength: 200 },
+      totalSeasons: { bsonType: "int", minimum: 0, maximum: 100 },
+      totalEpisodes: { bsonType: "int", minimum: 0, maximum: 10000 },
+      avgDuration: { bsonType: "int", minimum: 0, maximum: 600 },
+      _metadata: {
+        bsonType: "object",
+        required: ["createdAt", "version"],
+        additionalProperties: false,
+        properties: {
+          createdAt: { bsonType: "date" },
+          version: { bsonType: "string" },
+          updatedAt: { bsonType: "date" }
+        }
+      }
+    }
+  }
+});
+
+print("OK 'series' validado.");
+
+// ============================================================================
+// ESQUEMA 3: COLECCIÓN INVOICES_RESTRUCTURED
+// ============================================================================
+
+print("\nPASO 3: Esquema para 'invoices_restructured'...\n");
+
+applyOrCreate("invoices_restructured", {
+  $jsonSchema: {
+    bsonType: "object",
+    required: ["client", "contract", "billing", "chargeDate", "dumpDate", "total", "_metadata"],
+    additionalProperties: false,
+    properties: {
+      // En tu reestructuración, _id es string heredado de invoices
+      _id: { bsonType: "string", minLength: 1, maxLength: 60 },
+
+      client: {
+        bsonType: "object",
+        required: ["customerCode", "name", "surname", "email", "phone", "dni", "birthDate"],
+        additionalProperties: false,
+        properties: {
+          // Patrón relajado para códigos como '51/84733145/47T'
+          customerCode: {
+            bsonType: "string",
+            minLength: 2,
+            maxLength: 50,
+            pattern: "^[A-Za-z0-9/_\\-\\.]+$"
+          },
+          name: { bsonType: "string", minLength: 1, maxLength: 100 },
+          surname: { bsonType: "string", minLength: 1, maxLength: 150 },
+          email: {
+            bsonType: "string",
+            maxLength: 100,
+            pattern: "^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$"
+          },
+          // Phone como string de dígitos, 9 a 12
+          phone: { bsonType: "string", pattern: "^[0-9]{9,12}$" },
+          // DNI o NIE
+          dni: {
+            bsonType: "string",
+            pattern: "^(?:[0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])$"
+          },
+          birthDate: { bsonType: "date" },
+          age: { bsonType: "int", minimum: 0, maximum: 120 }
+        }
+      },
+
+      contract: {
+        bsonType: "object",
+        required: ["contractId", "startDate", "product"],
+        additionalProperties: false,
+        properties: {
+          contractId: { bsonType: "string", minLength: 2, maxLength: 40 },
+          startDate: { bsonType: "date" },
+          endDate: { bsonType: ["date", "null"] },
+          address: { bsonType: "string" },
+          zip: { bsonType: ["string", "int"] },
+          town: { bsonType: "string" },
+          country: { bsonType: "string" },
+          product: {
+            bsonType: "object",
+            required: ["reference", "type"],
+            additionalProperties: false,
+            properties: {
+              reference: { bsonType: "string", minLength: 1, maxLength: 50 },
+              type: { bsonType: "string", minLength: 1, maxLength: 30 },
+              monthlyFee: { bsonType: "decimal" },
+              costPerDay: { bsonType: "decimal" },
+              costPerMinute: { bsonType: "decimal" },
+              costPerContent: { bsonType: "decimal" },
+              // En tu modelo son enteros 0/1
+              zapping: { bsonType: "int", minimum: 0, maximum: 1 },
+              promotion: { bsonType: "int", minimum: 0 }
+            }
+          }
+        }
+      },
+
+      billing: { bsonType: "date" },
+      chargeDate: { bsonType: "date" },
+      dumpDate: { bsonType: "date" },
+      total: { bsonType: "decimal" },
+
+      contentStats: {
+        bsonType: "object",
+        additionalProperties: false,
+        properties: {
+          totalMovies: { bsonType: "int", minimum: 0 },
+          totalSeries: { bsonType: "int", minimum: 0 },
+          totalContent: { bsonType: "int", minimum: 0 }
+        }
+      },
+
+      movies: {
+        bsonType: "array",
+        items: {
+          bsonType: "object",
+          required: ["movieId", "date", "viewingPct"],
+          additionalProperties: false,
+          properties: {
+            movieId: { bsonType: "objectId" },
+            date: { bsonType: "date" },
+            time: {
+              bsonType: "string",
+              // HH:MM opcionalmente con :SS
+              pattern: "^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"
+            },
+            dateTime: { bsonType: ["date", "null"] },
+            viewingPct: { bsonType: ["int", "double"], minimum: 0, maximum: 100 },
+            license: {
+              bsonType: "object",
+              additionalProperties: false,
+              properties: {
+                date: { bsonType: ["date", "null"] },
+                time: { bsonType: "string" }
+              }
+            }
+          }
+        }
+      },
+
+      series: {
+        bsonType: "array",
+        items: {
+          bsonType: "object",
+          required: ["seriesId", "season", "episode", "date", "viewingPct"],
+          additionalProperties: false,
+          properties: {
+            seriesId: { bsonType: "objectId" },
+            season: { bsonType: "int", minimum: 0 },
+            episode: { bsonType: "int", minimum: 0 },
+            date: { bsonType: "date" },
+            time: {
+              bsonType: "string",
+              pattern: "^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"
+            },
+            dateTime: { bsonType: ["date", "null"] },
+            viewingPct: { bsonType: ["int", "double"], minimum: 0, maximum: 100 },
+            license: {
+              bsonType: "object",
+              additionalProperties: false,
+              properties: {
+                date: { bsonType: ["date", "null"] },
+                time: { bsonType: "string" }
+              }
+            }
+          }
+        }
+      },
+
+      _metadata: {
+        bsonType: "object",
+        required: ["restructuredAt", "version"],
+        additionalProperties: false,
+        properties: {
+          restructuredAt: { bsonType: "date" },
+          version: { bsonType: "string" }
+        }
+      }
+    }
+  }
+});
+
+print("OK 'invoices_restructured' validado.");
+
+// ============================================================================
+// RESTRICCIONES DE UNICIDAD
+// ============================================================================
+
+print("\nPASO 4: Restricciones de unicidad...\n");
+
+// Movies: dos índices parciales complementarios para cubrir con y sin year
+try {
+  db.movies.createIndex(
+    { title: 1, "details.year": 1 },
+    { unique: true, name: "uniq_title_year_when_year", partialFilterExpression: { "details.year": { $exists: true } } }
+  );
+  print("OK índice único movies (title, year) cuando year existe");
+} catch (e) { print("Aviso: índice '(title, year)' ya existía"); }
+
+try {
+  db.movies.createIndex(
+    { title: 1 },
+    { unique: true, name: "uniq_title_when_no_year", partialFilterExpression: { "details.year": { $exists: false } } }
+  );
+  print("OK índice único movies (title) cuando year no existe");
+} catch (e) { print("Aviso: índice 'title sin year' ya existía"); }
+
+// Series: título único
+try {
+  db.series.createIndex({ title: 1 }, { unique: true, name: "series_title_unique" });
+  print("OK índice único series.title");
+} catch (e) { print("Aviso: índice 'series.title' ya existía"); }
+
+// Invoices: cliente + billing único
+try {
+  db.invoices_restructured.createIndex(
+    { "client.customerCode": 1, billing: 1 },
+    { unique: true, name: "unique_customer_billing" }
+  );
+  print("OK índice único invoices_restructured (customerCode, billing)");
+} catch (e) { print("Aviso: índice 'customer+billing' ya existía"); }
+
+// ============================================================================
+// PRUEBAS DE VALIDACIÓN
+// ============================================================================
+
+print("\n" + "=".repeat(80));
+print("PRUEBAS DE VALIDACIÓN");
+print("=".repeat(80) + "\n");
+
+let testsPassed = 0, testsFailed = 0;
+
+// Test 1: Película con year fuera de rango
+print("Test 1: Película con year=1800 (debe fallar)...");
+try {
+  db.movies.insertOne({
+    title: "TEST_INVALID_YEAR",
+    details: { duration: 120, year: 1800 },
+    _metadata: { createdAt: new Date(), version: "1.0" }
+  });
+  print("FALLO: se permitió year inválido");
+  testsFailed++;
+  db.movies.deleteOne({ title: "TEST_INVALID_YEAR" });
+} catch (e) { print("OK: rechazado"); testsPassed++; }
+
+// Test 2: Serie con episodios negativos
+print("Test 2: Serie con totalEpisodes=-1 (debe fallar)...");
+try {
+  db.series.insertOne({
+    title: "TEST_INVALID_EPISODES",
+    totalSeasons: 0,
+    totalEpisodes: -1,
+    _metadata: { createdAt: new Date(), version: "1.0" }
+  });
+  print("FALLO: se permitió episodios negativos");
+  testsFailed++;
+  db.series.deleteOne({ title: "TEST_INVALID_EPISODES" });
+} catch (e) { print("OK: rechazado"); testsPassed++; }
+
+// Test 3: Factura con email inválido
+print("Test 3: Factura con email sin @ (debe fallar)...");
+try {
+  db.invoices_restructured.insertOne({
+    _id: "TEST_INV_1",
+    client: {
+      customerCode: "AB123456",
+      name: "Test",
+      surname: "User",
+      email: "invalidemail.com",
+      phone: "600123456",
+      dni: "12345678A",
+      birthDate: new Date("1990-01-01")
+    },
+    contract: {
+      contractId: "C12345678",
+      startDate: new Date(),
+      product: { reference: "BASIC-MONTHLY", type: "BASIC", zapping: 0, promotion: 0 }
+    },
+    billing: new Date(),
+    chargeDate: new Date(),
+    dumpDate: new Date(),
+    total: NumberDecimal("9.99"),
+    _metadata: { restructuredAt: new Date(), version: "2.2" }
+  });
+  print("FALLO: email inválido aceptado");
+  testsFailed++;
+  db.invoices_restructured.deleteOne({ _id: "TEST_INV_1" });
+} catch (e) { print("OK: rechazado"); testsPassed++; }
+
+// Test 4: Factura con viewingPct > 100
+print("Test 4: viewingPct=150 en movies (debe fallar)...");
+try {
+  db.invoices_restructured.insertOne({
+    _id: "TEST_INV_2",
+    client: {
+      customerCode: "AB999999",
+      name: "Test",
+      surname: "User",
+      email: "test@example.com",
+      phone: "600123456",
+      dni: "12345678A",
+      birthDate: new Date("1990-01-01"),
+      age: 34
+    },
+    contract: {
+      contractId: "C99999999",
+      startDate: new Date(),
+      product: { reference: "BASIC-MONTHLY", type: "BASIC", zapping: 1, promotion: 0 }
+    },
+    billing: new Date(),
+    chargeDate: new Date(),
+    dumpDate: new Date(),
+    total: NumberDecimal("9.99"),
+    movies: [{ movieId: ObjectId(), date: new Date(), viewingPct: 150 }],
+    series: [],
+    _metadata: { restructuredAt: new Date(), version: "2.2" }
+  });
+  print("FALLO: viewingPct > 100 aceptado");
+  testsFailed++;
+  db.invoices_restructured.deleteOne({ _id: "TEST_INV_2" });
+} catch (e) { print("OK: rechazado"); testsPassed++; }
+
+// Test 5: DNI inválido
+print("Test 5: DNI con formato incorrecto (debe fallar)...");
+try {
+  db.invoices_restructured.insertOne({
+    _id: "TEST_INV_3",
+    client: {
+      customerCode: "ZZ000001",
+      name: "Test",
+      surname: "User",
+      email: "ok@example.com",
+      phone: "600123456",
+      dni: "A2345678B", // no DNI/NIE válido
+      birthDate: new Date("1990-01-01")
+    },
+    contract: {
+      contractId: "C00000001",
+      startDate: new Date(),
+      product: { reference: "BASIC-MONTHLY", type: "BASIC", zapping: 0, promotion: 0 }
+    },
+    billing: new Date(),
+    chargeDate: new Date(),
+    dumpDate: new Date(),
+    total: NumberDecimal("9.99"),
+    _metadata: { restructuredAt: new Date(), version: "2.2" }
+  });
+  print("FALLO: DNI inválido aceptado");
+  testsFailed++;
+  db.invoices_restructured.deleteOne({ _id: "TEST_INV_3" });
+} catch (e) { print("OK: rechazado"); testsPassed++; }
+
+// ============================================================================
+// RESUMEN
+// ============================================================================
+
+print("\n" + "=".repeat(80));
+print("RESUMEN DE IMPLEMENTACIÓN");
+print("=".repeat(80) + "\n");
+
+function isActive(name) {
+  const info = db.getCollectionInfos({ name })[0];
+  return info && info.options && info.options.validator ? "ACTIVO" : "NO ACTIVO";
+}
+
+print("ESQUEMAS APLICADOS:");
+print("   movies: " + isActive("movies"));
+print("   series: " + isActive("series"));
+print("   invoices_restructured: " + isActive("invoices_restructured"));
+
+print("\nRESTRICCIONES DE UNICIDAD:");
+print("   movies: (title, year) parcial y title sin year parcial");
+print("   series: title único");
+print("   invoices_restructured: customerCode + billing único");
+
+print("\nRESULTADOS DE PRUEBAS:");
+print("   Pruebas exitosas: " + testsPassed);
+print("   Pruebas fallidas: " + testsFailed);
+print("   Total: " + (testsPassed + testsFailed));
+
+print("\nCONFIGURACIÓN:");
+print("   Validation Level: STRICT");
+print("   Validation Action: ERROR");
+print("   Additional Properties: FALSE");
+
+print("\n" + "=".repeat(80));
+print("ESQUEMAS DE VALIDACIÓN IMPLEMENTADOS");
+print("=".repeat(80) + "\n");
+
+// Estadísticas
+print("ESTADÍSTICAS DE COLECCIONES:");
+print("   movies: " + db.movies.countDocuments({}).toLocaleString() + " documentos");
+print("   series: " + db.series.countDocuments({}).toLocaleString() + " documentos");
+print("   invoices_restructured: " + db.invoices_restructured.countDocuments({}).toLocaleString() + " documentos");
+
+print("\nFECHA DE IMPLEMENTACIÓN: " + new Date().toISOString());
+print("VERSIÓN DEL ESQUEMA: 1.0\n");
